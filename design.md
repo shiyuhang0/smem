@@ -93,6 +93,7 @@ GET /api/v1/memories?search=xxx
 - `preference`
 - `profile`
 - `note`
+- `decision`
 
 ### Memory Scope
 
@@ -110,7 +111,7 @@ GET /api/v1/memories?search=xxx
 
 ### Database Design
 
-memory 至少包含以下基础字段：`id`、`content`、`embedding`、`type`、`kind`、`scope`、`state`、`created_at`、`updated_at`。
+memory 至少包含以下基础字段：`id`、`content`、`embedding`、`type`、`kind`、`scope`、`state`、`created_at`、`updated_at`、`store_count`。
 
 基于最终设计需要，还可包含更多管理字段，如 `hash`、`agent_id`、`session_id`、`version`、`metadata` 等。`metadata` 可用于任何召回后的过滤。
 
@@ -121,7 +122,7 @@ CREATE TABLE memories (
   id              VARCHAR(36) PRIMARY KEY,
   content         TEXT NOT NULL,
   embedding       VECTOR(1536) NULL,           -- 向量嵌入
-  hash            VARCHAR(64) NULL,            -- content 的 hash 值，用于去重
+  content_hash    VARCHAR(64) NULL,            -- content 的 hash 值，用于去重
   type            VARCHAR(20),                 -- 记忆类型：fact/episodic/procedural
   scope           VARCHAR(20) DEFAULT 'user',  -- 记忆范围：user/agent/external
   kind            VARCHAR(50),                 -- 主记忆种类：skill/task/lesson/workflow/preference/profile/note
@@ -129,8 +130,12 @@ CREATE TABLE memories (
   metadata        JSON,                        -- 元数据
   agent_id        VARCHAR(100),                -- Agent ID
   session_id      VARCHAR(100),                -- 会话 ID
+  source          VARCHAR(100),                -- 记忆来源，如 plugin、manual 等
   state           VARCHAR(20) DEFAULT 'active',-- active/archived
   version         INT DEFAULT 1,               -- 乐观锁版本
+  store_count     INT DEFAULT 0,               -- 存储次数，用于衡量记忆的重要程度
+  last_accessed_at TIMESTAMP,                    -- 上次访问时间
+  use_count       INT DEFAULT 0,               -- 使用次数，用于衡量记忆的重要程度
   created_at      TIMESTAMP,
   updated_at      TIMESTAMP,
 
@@ -138,6 +143,7 @@ CREATE TABLE memories (
   INDEX idx_state (state),
   INDEX idx_agent (agent_id),
   INDEX idx_session (session_id)
+  UNIQUE INDEX idx_content_hash (content_hash)
 );
 ```
 
@@ -153,13 +159,14 @@ CREATE TABLE memories (
 
 1. normal mode：必须提供 `content`，可选提供 `type`、`scope`、`kind`。直接 embedding 完存储。
 2. smart mode：必须提供 `content`，可选提供 `scope`。
-   1. 使用 prompt 基于 LLM 自动提取关键信息，生成 `content2`、`type`、`kind`。
-   2. 召回相关记忆，使用 prompt 基于 LLM 进行记忆融合，判断是忽略记忆、创建新记忆，还是更新老记忆。
-   3. 最终存储时，进行 embedding 存储。
+   1. 使用 prompt 基于 LLM 自动提取关键信息，生成一条或多条的 `content`+`type`+`kind` 组合，最多10条。
+   2. 召回相关记忆，使用 prompt 基于 LLM 进行记忆融合，判断：更新记忆 or 创建记忆，及时记忆相同也要更新一次，为了更新时间
+   3. 最终存储时，进行 embedding 存储。注意基于 content hash 去重
 
-### Key Decision
+关键点
 
 1. 异步存储：存储为 `creating` 状态即返回成功，直到完成 embedding 后更新为 `active` 状态。
+2. 智能模式下，我希望 LLM 自动提取关键信息时，尽量提取尽量小和原子的内容。
 
 ## Recall Design
 
@@ -183,7 +190,7 @@ CREATE TABLE memories (
    3. 使用 RRF 融合两种搜索结果，得到最终 2k 到 4k 条记忆。
 3. rerank 精排。
    1. 打分策略：
-      1. 基于 `kind` 匹配度、最近更新时间等方面设置权重进行打分。
+      1. 基于 `type`、 `kind` 匹配度、最近更新时间、存储次数等方面设置权重进行打分。
       2. 暂不实现：可插拔 reranker，如 `CohereReranker`、`cross-encoder`。
    2. 对得分进行 softmax，按概率召回，并设置 `Temperature` 参数，让记忆更发散。
 
@@ -203,8 +210,6 @@ CREATE TABLE memories (
   - 每轮用户输入触发一次，不是每会话一次。
   - 需要注意 `agent_end` 还会有前几轮对话内容，设计时需要注意去重，防止重复存储。
   - 格式化信息，然后调用服务端记忆存储接口，存储记忆。
-- `session_end`、`reset`
-  - 获取最近 5 轮对话内容，提取摘要。
 - `before_prompt_build`
   - 提供两种模式：
   - 默认模式：传入 prompt，请求服务端搜索，召回注入到 prompt 中。
@@ -212,7 +217,7 @@ CREATE TABLE memories (
 
 ### Key Decision
 
-1. 注入到 prompt 时，用 `memory` 包括召回的记忆内容。然后再 `agent_end` 存储记忆时，去掉召回的 `memory`，防止重复存储。
+1. client 去重策略：注入到 prompt 时，用 `memory` 包括召回的记忆内容。然后再 `agent_end` 存储记忆时，去掉召回的 `memory`，防止重复存储。
 
 ### Parameters
 
@@ -228,3 +233,11 @@ CREATE TABLE memories (
 
 - BM25 是什么：全文检索。
 - digest 不参与召回：向量搜索，只能搜索后过滤。
+
+## Future
+
+暂时不实现，未来实现。
+
+摘要设计：
+
+- openclaw `session_end`、`reset`: 获取最近 5 轮对话内容，提取摘要，并存储
