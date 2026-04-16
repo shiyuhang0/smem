@@ -183,29 +183,54 @@ CREATE TABLE memories (
 
 ### Inputs
 
-- 输入内容：`content1`
+- 输入内容：`content`
 - 可配置召回数量：默认召回 top 5 条相关记忆，可配置召回 1-10 条相关记忆。
 
 ### Flow
 
 假设要求召回 top k 条相关记忆，召回流程如下：
 
-1. 对 `content1` 使用 prompt 基于 LLM 自动提取关键信息，生成 `content2`、`type`、`kinds`。其中 `content2` 用作 recall query rewrite，`type`、`kinds` 默认只用于排序加权，不作为硬过滤条件。
-2. 基于 `content2` 粗排。
-   1. 基于向量搜索 2k 条记忆，只搜 `active` 状态的记忆。
-   2. 基于全文搜索 2k 条记忆，只搜 `active` 状态的记忆。
-   3. 使用 RRF 融合两种搜索结果，得到最终 2k 到 4k 条记忆。
-3. rerank 精排。
+1. 基于 `content` 粗排。
+   1. 基于向量搜索 2k 条记忆，只搜 `active` 状态的记忆，注意需要保留 distance。
+   2. 基于全文搜索 2k 条记忆，只搜 `active` 状态的记忆，注意保留 score。
+   3. 使用 RRF 融合两种搜索结果，得到最终 top 2k 条记忆。
+2. rerank 精排得到 top k。
    1. 打分策略：
-      1. 基于 `type`、`kinds` 匹配度、最近更新时间、存储次数等方面设置权重进行打分。
-      2. 暂不实现：可插拔 reranker，如 `CohereReranker`、`cross-encoder`。
-   2. 对得分进行 softmax，按概率召回，并设置 `Temperature` 参数，让记忆更发散。
+      1. 权重打分：基于第一步中的 `distance`, `score`。以及创建时间、最近更新时间、存储次数等方面设置权重进行打分。未来可增加 `type`、`kinds` 等。
+      2. reranker 打分：如 `CohereReranker`、`cross-encoder`，暂时不实现，但预留位置。
+   2. 对得分进行 softmax，并设置 `Temperature` 参数。得到概率后，按概率召回 topk，而不是直接取前 k 个。
 
-失败降级策略：当全文检索不可用时，召回流程退化为仅向量搜索。
+### Relevance-Gated Rerank
+
+#### Background
+
+`recency`、`store_count` 这类业务信号不能脱离检索相关性单独抬分，否则完全无关但较新、被多次存储的记忆也会获得较高分数，污染召回结果。
+
+#### Default Strategy
+
+1. 先基于 `distance` 和 `score` 计算 `relevance` 主分。
+2. 再引入 `recency`、`store_count` 作为 boost。
+3. 只有当 `relevance` 超过一个较低门槛后，业务信号才参与增强；当 `relevance` 很低时，直接返回 `relevance`，不再叠加 boost。
+
+#### Default Weights
+
+1. `relevance = 0.6 * vector_similarity + 0.4 * full_text_score`
+2. `vector_similarity` 由 `distance` 归一化得到，`full_text_score` 由当前候选集合中的最大 `score` 归一化得到。
+3. 通过门槛后，再计算 `boost = 0.7 * recency + 0.3 * store_count_score`
+4. 最终得分为 `relevance + 0.1 * boost`
+
+#### Design Goal
+
+相关性信号决定“能不能进场”，时间和存储次数只负责在相关候选之间做微调，不负责让弱相关或无关候选翻盘。
+
+以下策略未来实现
+1.  对输入使用 prompt 基于 LLM 自动提取关键信息，生成 `content`、`type`、`kinds`。其中 `content` 用作 recall query rewrite，`type`、`kinds` 用于排序加权。
+
 
 ### Key Decision
 
 1. embedding 默认基于 `text-embedding-3-small` 模型，共 1536 维。
+   
 
 ## Client Plugin Design
 

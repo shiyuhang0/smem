@@ -89,6 +89,14 @@ func (r *handlerRepo) Search(_ context.Context, _ string, _ int) ([]memory.Memor
 	return nil, nil
 }
 
+func (r *handlerRepo) VectorSearch(_ context.Context, _ []float32, _ int) ([]memory.RecallCandidate, error) {
+	return nil, nil
+}
+
+func (r *handlerRepo) FullTextSearch(_ context.Context, _ string, _ int) ([]memory.RecallCandidate, error) {
+	return nil, nil
+}
+
 func init() {
 	gin.SetMode(gin.TestMode)
 	_ = time.UTC

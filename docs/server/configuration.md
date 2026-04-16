@@ -18,6 +18,12 @@
 - `OPENAI_API_KEY`: OpenAI-compatible API key
 - 有效的 embedding 配置：服务端必须能解析出可用的 `EMBEDDING_PROVIDER`、`EMBEDDING_MODEL` 和 `EMBEDDING_DIM`
 
+## TiDB Requirements
+
+- recall 依赖 TiDB 原生 `VECTOR` 和 `FULLTEXT` 检索能力
+- 服务启动时会按文件名顺序执行 `apps/server/migrations/*.sql`
+- TiDB Cloud 的能力和区域限制请参考 [向量搜索文档](https://docs.pingcap.com/zh/ai/vector-search/) 和 [全文搜索 SQL 文档](https://docs.pingcap.com/zh/ai/vector-search-full-text-search-sql/)
+
 ## Configuration File Keys
 
 配置文件中使用以下 YAML key：

@@ -6,6 +6,7 @@
 
 - Go 1.25+
 - 一个可访问的 TiDB 实例
+- 该 TiDB 实例需要支持原生 `VECTOR` 和 `FULLTEXT` 检索能力
 - 一个 OpenAI-compatible API endpoint
 - 一个可访问的 embedding provider
 
@@ -68,7 +69,7 @@ go run ./cmd/smem-server
 启动时会自动尝试：
 
 - 连接数据库
-- 自动建表/迁移
+- 按文件名顺序执行 `apps/server/migrations/*.sql`
 - 初始化 HTTP 路由
 
 ## 4. 验证服务

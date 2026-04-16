@@ -2,6 +2,9 @@ package tidb
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
+	"strconv"
 	"strings"
 
 	"gorm.io/gorm"
@@ -12,6 +15,26 @@ import (
 type Repository struct {
 	db *gorm.DB
 }
+
+const memorySelectColumns = `
+id,
+content,
+content_hash,
+type,
+kinds,
+scope,
+state,
+metadata,
+agent_id,
+session_id,
+source,
+version,
+store_count,
+use_count,
+last_accessed_at,
+created_at,
+updated_at
+`
 
 func NewRepository(db *gorm.DB) *Repository {
 	return &Repository{db: db}
@@ -123,4 +146,100 @@ func (r *Repository) Search(ctx context.Context, query string, limit int) ([]mem
 		out = append(out, model.toDomain())
 	}
 	return out, nil
+}
+
+func (r *Repository) VectorSearch(ctx context.Context, queryVector []float32, limit int) ([]memory.RecallCandidate, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	if len(queryVector) == 0 {
+		return nil, nil
+	}
+	rows, err := r.db.WithContext(ctx).Raw(`
+		SELECT `+memorySelectColumns+`,
+		       vec_cosine_distance(embedding, ?) AS distance
+		FROM memories
+		WHERE state = ? AND embedding IS NOT NULL
+		ORDER BY distance
+		LIMIT ?
+	`, vectorLiteral(queryVector), string(memory.StateActive), limit).Rows()
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return scanRecallCandidateRows(r.db, rows)
+}
+
+func (r *Repository) FullTextSearch(ctx context.Context, query string, limit int) ([]memory.RecallCandidate, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, nil
+	}
+	queryLiteral := fullTextQueryLiteral(query)
+	rows, err := r.db.WithContext(ctx).Raw(`
+		SELECT `+memorySelectColumns+`,
+		       fts_match_word(`+queryLiteral+`, content) AS score
+		FROM memories
+		WHERE state = ? AND fts_match_word(`+queryLiteral+`, content)
+		ORDER BY score DESC
+		LIMIT ?
+	`, string(memory.StateActive), limit).Rows()
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return scanRecallCandidateRows(r.db, rows)
+}
+
+func scanMemoryRows(db *gorm.DB, rows *sql.Rows) ([]memory.Memory, error) {
+	out := make([]memory.Memory, 0)
+	for rows.Next() {
+		var model MemoryModel
+		if err := db.ScanRows(rows, &model); err != nil {
+			return nil, err
+		}
+		out = append(out, model.toDomain())
+	}
+	return out, rows.Err()
+}
+
+type recallCandidateRow struct {
+	MemoryModel
+	Distance *float64 `gorm:"column:distance"`
+	Score    *float64 `gorm:"column:score"`
+}
+
+func scanRecallCandidateRows(db *gorm.DB, rows *sql.Rows) ([]memory.RecallCandidate, error) {
+	out := make([]memory.RecallCandidate, 0)
+	for rows.Next() {
+		var row recallCandidateRow
+		if err := db.ScanRows(rows, &row); err != nil {
+			return nil, err
+		}
+		out = append(out, memory.RecallCandidate{
+			Memory:         row.MemoryModel.toDomain(),
+			VectorDistance: row.Distance,
+			FullTextScore:  row.Score,
+		})
+	}
+	return out, rows.Err()
+}
+
+func vectorLiteral(values []float32) string {
+	parts := make([]string, 0, len(values))
+	for _, value := range values {
+		parts = append(parts, strconv.FormatFloat(float64(value), 'f', -1, 32))
+	}
+	return fmt.Sprintf("[%s]", strings.Join(parts, ","))
+}
+
+func fullTextQueryLiteral(value string) string {
+	value = strings.ReplaceAll(value, `\`, `\\`)
+	value = strings.ReplaceAll(value, `'`, `''`)
+	return "'" + value + "'"
 }

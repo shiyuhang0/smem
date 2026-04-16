@@ -11,34 +11,142 @@ import (
 	"smem/apps/server/internal/llm"
 )
 
-func TestRecallFallsBackToRawQueryAndReturnsActiveMemories(t *testing.T) {
-	repo := &recallRepo{items: []memory.Memory{
-		{ID: "a", Content: "remember vim", State: memory.StateActive, Type: memory.TypeFact, Kinds: []string{"preference"}, StoreCount: 3, UpdatedAt: time.Now().UTC()},
-		{ID: "b", Content: "draft note", State: memory.StateCreating},
-	}}
-	svc := NewService(repo, fakeEmbedder{}, fakeLLMProvider{err: context.DeadlineExceeded})
-
-	results, err := svc.Recall(context.Background(), memory.RecallInput{Content: "vim", TopK: 3, Temperature: 1})
-	require.NoError(t, err)
-	require.Len(t, results, 1)
-	require.Equal(t, "a", results[0].Memory.ID)
-}
-
-func TestRecallUsesRewriteTypeAndKindsToBoostMatches(t *testing.T) {
+func TestRecallUsesVectorDistanceDuringRerank(t *testing.T) {
 	now := time.Now().UTC()
-	repo := &recallRepo{items: []memory.Memory{
-		{ID: "a", Content: "editor preference", State: memory.StateActive, Type: memory.TypeFact, Kinds: []string{"note"}, StoreCount: 3, UpdatedAt: now},
-		{ID: "b", Content: "editor preference", State: memory.StateActive, Type: memory.TypeFact, Kinds: []string{"preference"}, StoreCount: 1, UpdatedAt: now},
-	}}
-	svc := NewService(repo, fakeEmbedder{}, fakeLLMProvider{response: `{"content":"editor preference","type":"fact","kinds":["preference"]}`})
+	repo := &recallRepo{
+		vectorCandidates: []memory.RecallCandidate{
+			{
+				Memory:         memory.Memory{ID: "near", Content: "remember vim", State: memory.StateActive, StoreCount: 1, CreatedAt: now, UpdatedAt: now},
+				VectorDistance: floatPtr(0.05),
+			},
+			{
+				Memory:         memory.Memory{ID: "far", Content: "remember vim", State: memory.StateActive, StoreCount: 1, CreatedAt: now, UpdatedAt: now},
+				VectorDistance: floatPtr(0.35),
+			},
+		},
+		fullTextCandidates: []memory.RecallCandidate{},
+	}
+	svc := NewService(repo, fakeEmbedder{}, fakeLLMProvider{})
 
-	results, err := svc.Recall(context.Background(), memory.RecallInput{Content: "what editor do i use", TopK: 2, Temperature: 1})
+	results, err := svc.Recall(context.Background(), memory.RecallInput{Content: "vim", TopK: 2, Temperature: 1})
 	require.NoError(t, err)
 	require.Len(t, results, 2)
-	require.Equal(t, "b", results[0].Memory.ID)
+	require.Equal(t, "near", results[0].Memory.ID)
 }
 
-type recallRepo struct{ items []memory.Memory }
+func TestRecallReturnsErrorWhenFullTextSearchFails(t *testing.T) {
+	now := time.Now().UTC()
+	repo := &recallRepo{
+		vectorCandidates: []memory.RecallCandidate{{
+			Memory:         memory.Memory{ID: "a", Content: "remember vim", State: memory.StateActive, StoreCount: 1, CreatedAt: now, UpdatedAt: now},
+			VectorDistance: floatPtr(0.1),
+		}},
+		fullTextErr: context.DeadlineExceeded,
+	}
+	svc := NewService(repo, fakeEmbedder{}, fakeLLMProvider{})
+
+	results, err := svc.Recall(context.Background(), memory.RecallInput{Content: "vim", TopK: 3, Temperature: 1})
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Nil(t, results)
+}
+
+func TestRecallUsesRRFToMergeVectorAndFullTextCandidates(t *testing.T) {
+	now := time.Now().UTC()
+	repo := &recallRepo{
+		vectorCandidates: []memory.RecallCandidate{
+			{Memory: memory.Memory{ID: "vec-only", Content: "vector only", State: memory.StateActive, StoreCount: 1, CreatedAt: now, UpdatedAt: now}, VectorDistance: floatPtr(0.05)},
+			{Memory: memory.Memory{ID: "shared", Content: "shared", State: memory.StateActive, StoreCount: 1, CreatedAt: now, UpdatedAt: now}, VectorDistance: floatPtr(0.1)},
+		},
+		fullTextCandidates: []memory.RecallCandidate{
+			{Memory: memory.Memory{ID: "shared", Content: "shared", State: memory.StateActive, StoreCount: 1, CreatedAt: now, UpdatedAt: now}, FullTextScore: floatPtr(0.8)},
+			{Memory: memory.Memory{ID: "fts-only", Content: "fts only", State: memory.StateActive, StoreCount: 1, CreatedAt: now, UpdatedAt: now}, FullTextScore: floatPtr(1)},
+		},
+	}
+	svc := NewService(repo, fakeEmbedder{}, fakeLLMProvider{})
+
+	results, err := svc.Recall(context.Background(), memory.RecallInput{Content: "shared", TopK: 3, Temperature: 1})
+	require.NoError(t, err)
+	require.Len(t, results, 3)
+	require.ElementsMatch(t, []string{"vec-only", "shared", "fts-only"}, []string{
+		results[0].Memory.ID,
+		results[1].Memory.ID,
+		results[2].Memory.ID,
+	})
+}
+
+func TestFuseRecallCandidatesUsesRRFWhenFullTextAvailable(t *testing.T) {
+	vectorCandidates := []memory.RecallCandidate{
+		{Memory: memory.Memory{ID: "vec-only"}},
+		{Memory: memory.Memory{ID: "shared"}},
+	}
+	fullTextCandidates := []memory.RecallCandidate{
+		{Memory: memory.Memory{ID: "shared"}},
+		{Memory: memory.Memory{ID: "fts-only"}},
+	}
+	svc := NewService(&recallRepo{}, nil, fakeLLMProvider{})
+
+	candidates := svc.rrfCandidates(vectorCandidates, fullTextCandidates, 2)
+
+	require.Len(t, candidates, 3)
+	require.Equal(t, "shared", candidates[0].Memory.ID)
+	require.Equal(t, "vec-only", candidates[1].Memory.ID)
+	require.Equal(t, "fts-only", candidates[2].Memory.ID)
+}
+
+func TestApplySoftmaxScoresReturnsProbabilities(t *testing.T) {
+	svc := NewService(&recallRepo{}, nil, fakeLLMProvider{})
+	results := []memory.RecallResult{
+		{Memory: memory.Memory{ID: "a"}, Score: 2},
+		{Memory: memory.Memory{ID: "b"}, Score: 1},
+	}
+
+	probabilities := svc.applySoftmaxScores(results, 1)
+
+	require.Len(t, probabilities, 2)
+	require.Greater(t, probabilities[0].Score, probabilities[1].Score)
+	require.InDelta(t, 1.0, probabilities[0].Score+probabilities[1].Score, 0.000001)
+}
+
+func TestSummarizeRecallCandidatesOnlyPrintsKeyFields(t *testing.T) {
+	candidates := []memory.RecallCandidate{
+		{
+			Memory:         memory.Memory{ID: "a", Content: "remember vim and tmux"},
+			VectorDistance: floatPtr(0.12),
+			FullTextScore:  floatPtr(0.8),
+		},
+	}
+
+	summary := summarizeRecallCandidates(candidates)
+
+	require.Equal(t, []string{"a:remember vim and tmux:distance=0.12:score=0.8"}, summary)
+}
+
+func TestSelectTopKByProbabilityCanChooseLowerProbabilityResult(t *testing.T) {
+	results := []memory.RecallResult{
+		{Memory: memory.Memory{ID: "a"}, Score: 0.6},
+		{Memory: memory.Memory{ID: "b"}, Score: 0.3},
+		{Memory: memory.Memory{ID: "c"}, Score: 0.1},
+	}
+	draws := []float64{0.95, 0.1}
+	svc := NewService(&recallRepo{}, nil, fakeLLMProvider{})
+	svc.randFloat = func() float64 {
+		value := draws[0]
+		draws = draws[1:]
+		return value
+	}
+
+	selected := svc.selectTopKByProbability(results, 2)
+
+	require.Len(t, selected, 2)
+	require.Equal(t, "a", selected[0].Memory.ID)
+	require.Equal(t, "c", selected[1].Memory.ID)
+}
+
+type recallRepo struct {
+	vectorCandidates   []memory.RecallCandidate
+	fullTextCandidates []memory.RecallCandidate
+	fullTextErr        error
+}
 
 func (r *recallRepo) Create(context.Context, memory.Memory) (memory.Memory, error) { panic("unused") }
 func (r *recallRepo) Update(context.Context, memory.Memory) (memory.Memory, error) { panic("unused") }
@@ -47,24 +155,24 @@ func (r *recallRepo) GetByID(context.Context, string) (memory.Memory, error)    
 func (r *recallRepo) GetByContentHash(context.Context, string) (memory.Memory, error) {
 	panic("unused")
 }
-func (r *recallRepo) List(_ context.Context, input memory.ListInput) ([]memory.Memory, int64, error) {
-	filtered := make([]memory.Memory, 0, len(r.items))
-	for _, item := range r.items {
-		if input.State != "" && item.State != input.State {
-			continue
-		}
-		filtered = append(filtered, item)
-	}
-	return filtered, int64(len(filtered)), nil
+func (r *recallRepo) List(_ context.Context, _ memory.ListInput) ([]memory.Memory, int64, error) {
+	return nil, 0, nil
 }
 func (r *recallRepo) Search(_ context.Context, query string, _ int) ([]memory.Memory, error) {
-	out := make([]memory.Memory, 0, len(r.items))
-	for _, item := range r.items {
-		if item.State == memory.StateActive && query != "" {
-			out = append(out, item)
-		}
+	_ = query
+	return nil, nil
+}
+
+func (r *recallRepo) VectorSearch(_ context.Context, _ []float32, _ int) ([]memory.RecallCandidate, error) {
+	return r.vectorCandidates, nil
+}
+
+func (r *recallRepo) FullTextSearch(_ context.Context, query string, _ int) ([]memory.RecallCandidate, error) {
+	if r.fullTextErr != nil {
+		return nil, r.fullTextErr
 	}
-	return out, nil
+	_ = query
+	return r.fullTextCandidates, nil
 }
 
 type fakeEmbedder struct{}
@@ -80,4 +188,8 @@ type fakeLLMProvider struct {
 
 func (f fakeLLMProvider) GenerateText(context.Context, []llm.Message) (string, error) {
 	return f.response, f.err
+}
+
+func floatPtr(value float64) *float64 {
+	return &value
 }

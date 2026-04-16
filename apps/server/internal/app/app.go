@@ -36,7 +36,7 @@ func New(cfg config.Config) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := tidb.AutoMigrate(context.Background(), db); err != nil {
+	if err := tidb.ApplyMigrations(context.Background(), db); err != nil {
 		return nil, err
 	}
 	repo := tidb.NewRepository(db)

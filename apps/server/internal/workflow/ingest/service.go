@@ -62,6 +62,7 @@ func (s *Service) createSmart(ctx context.Context, input memory.CreateInput) ([]
 	if err := json.Unmarshal([]byte(raw), &payload); err != nil || len(payload.Memories) == 0 {
 		return nil, err
 	}
+	// max 10 memories
 	if len(payload.Memories) > 10 {
 		payload.Memories = payload.Memories[:10]
 	}

@@ -6,6 +6,7 @@
 
 - Go 1.25+
 - 一个可访问的 TiDB Cloud 集群和数据库
+- 集群所在区域和套餐需要支持 TiDB 原生 `VECTOR` 和 `FULLTEXT` 检索能力
 - 一个 OpenAI-compatible LLM endpoint
 - 一个可访问的 embedding provider
 
@@ -52,6 +53,7 @@ export DB_TLS_SERVER_NAME='gateway01.ap-southeast-1.prod.aws.tidbcloud.com'
 - 给服务端使用独立账号
 - 只授予该数据库的最小必要权限
 - 确认 TiDB Cloud IP allowlist 已放行部署机器
+- 先确认你的 TiDB Cloud 区域已开放向量搜索和全文搜索能力
 
 ### 2. LLM 配置
 
@@ -163,7 +165,7 @@ go run ./cmd/smem-server
 启动时会自动：
 
 - 连接 TiDB Cloud
-- 执行 `AutoMigrate`
+- 按文件名顺序执行 `apps/server/migrations/*.sql`
 - 初始化 HTTP 路由
 
 ## 验证

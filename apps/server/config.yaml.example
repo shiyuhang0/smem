@@ -1,5 +1,6 @@
 server_addr: ":8080"
 
+# TiDB Cloud 需要支持原生 VECTOR / FULLTEXT 能力。
 db_dsn: "user:password@tcp(gateway01.ap-southeast-1.prod.aws.tidbcloud.com:4000)/smem"
 db_tls_server_name: "gateway01.ap-southeast-1.prod.aws.tidbcloud.com"
 

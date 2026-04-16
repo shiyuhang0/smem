@@ -62,6 +62,12 @@ type RecallInput struct {
 	Temperature float64
 }
 
+type RecallCandidate struct {
+	Memory         Memory
+	VectorDistance *float64
+	FullTextScore  *float64
+}
+
 type RecallResult struct {
 	Memory Memory
 	Score  float64

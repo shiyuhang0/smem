@@ -12,6 +12,9 @@ import (
 type StringSlice []string
 
 func (s StringSlice) Value() (driver.Value, error) {
+	if s == nil {
+		return nil, nil
+	}
 	buf, err := json.Marshal([]string(s))
 	if err != nil {
 		return nil, err
@@ -44,6 +47,9 @@ func (s *StringSlice) Scan(value any) error {
 type JSONMap map[string]any
 
 func (m JSONMap) Value() (driver.Value, error) {
+	if m == nil {
+		return nil, nil
+	}
 	buf, err := json.Marshal(map[string]any(m))
 	if err != nil {
 		return nil, err
@@ -76,6 +82,9 @@ func (m *JSONMap) Scan(value any) error {
 type Float32Slice []float32
 
 func (s Float32Slice) Value() (driver.Value, error) {
+	if s == nil {
+		return nil, nil
+	}
 	buf, err := json.Marshal([]float32(s))
 	if err != nil {
 		return nil, err

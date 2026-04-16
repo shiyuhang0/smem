@@ -73,3 +73,11 @@ func (r *fakeRepository) List(_ context.Context, _ ListInput) ([]Memory, int64, 
 func (r *fakeRepository) Search(_ context.Context, _ string, _ int) ([]Memory, error) {
 	return nil, nil
 }
+
+func (r *fakeRepository) VectorSearch(_ context.Context, _ []float32, _ int) ([]RecallCandidate, error) {
+	return nil, nil
+}
+
+func (r *fakeRepository) FullTextSearch(_ context.Context, _ string, _ int) ([]RecallCandidate, error) {
+	return nil, nil
+}

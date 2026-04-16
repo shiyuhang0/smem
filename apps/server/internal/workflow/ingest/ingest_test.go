@@ -168,4 +168,12 @@ func (r *repo) List(_ context.Context, input memory.ListInput) ([]memory.Memory,
 }
 func (r *repo) Search(_ context.Context, _ string, _ int) ([]memory.Memory, error) { return nil, nil }
 
+func (r *repo) VectorSearch(_ context.Context, _ []float32, _ int) ([]memory.RecallCandidate, error) {
+	return nil, nil
+}
+
+func (r *repo) FullTextSearch(_ context.Context, _ string, _ int) ([]memory.RecallCandidate, error) {
+	return nil, nil
+}
+
 func init() { _ = time.UTC }

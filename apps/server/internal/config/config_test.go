@@ -17,7 +17,7 @@ func TestLoadDefaults(t *testing.T) {
 	require.Equal(t, ":8080", cfg.ServerAddr)
 	require.Equal(t, "https://api.openai.com/v1", cfg.OpenAIBaseURL)
 	require.Equal(t, "gpt-4.1-mini", cfg.OpenAIChatModel)
-	require.Equal(t, 1536, cfg.EmbeddingDim)
+	require.Equal(t, 1024, cfg.EmbeddingDim)
 }
 
 func TestLoadRequiresDSNAndAPIKey(t *testing.T) {

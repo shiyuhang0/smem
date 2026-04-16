@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS memories (
   id VARCHAR(64) PRIMARY KEY,
   content TEXT NOT NULL,
-  embedding JSON NULL,
+  embedding VECTOR(1536) NULL,
   content_hash VARCHAR(64) NOT NULL,
   type VARCHAR(32) NULL,
   kinds JSON NULL,
@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS memories (
   last_accessed_at TIMESTAMP NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  VECTOR INDEX idx_memories_embedding ((VEC_COSINE_DISTANCE(embedding))),
+  FULLTEXT INDEX fts_memories_content (content) WITH PARSER MULTILINGUAL,
   UNIQUE KEY uq_memories_content_hash (content_hash),
   KEY idx_memories_state (state),
   KEY idx_memories_type (type),

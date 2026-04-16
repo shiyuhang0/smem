@@ -2,11 +2,12 @@ package recall
 
 import (
 	"context"
-	"encoding/json"
-	"math"
+	//"encoding/json"
+	"math/rand"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"smem/apps/server/internal/domain/memory"
 	"smem/apps/server/internal/embedding"
@@ -18,91 +19,64 @@ import (
 
 var recallLogger = observability.NewLogger("[recall] ")
 
+const enabelSoftmax = false
+
 type Service struct {
-	repo     memory.Repository
-	embedder embedding.Provider
-	llm      llm.Provider
+	repo      memory.Repository
+	embedder  embedding.Provider
+	llm       llm.Provider
+	randFloat func() float64
 }
 
 func NewService(repo memory.Repository, embedder embedding.Provider, llmProvider llm.Provider) *Service {
-	return &Service{repo: repo, embedder: embedder, llm: llmProvider}
+	return &Service{
+		repo:      repo,
+		embedder:  embedder,
+		llm:       llmProvider,
+		randFloat: rand.Float64,
+	}
 }
 
 func (s *Service) Recall(ctx context.Context, input memory.RecallInput) ([]memory.RecallResult, error) {
 	if input.TopK == 0 {
-		input.TopK = 5
+		input.TopK = 2
 	}
 	if input.Temperature == 0 {
 		input.Temperature = 1
 	}
+
+	// will add new content/type/kinds for rewrite in the future
 	rewritten := rewriteResult{Content: input.Content}
-	if s.llm != nil {
-		raw, err := s.llm.GenerateText(ctx, llm.NewRecallRewritePrompt(input.Content))
-		if err == nil && raw != "" {
-			parsed := rewriteResult{}
-			if json.Unmarshal([]byte(raw), &parsed) == nil && strings.TrimSpace(parsed.Content) != "" {
-				rewritten = parsed
-			} else {
-				rewritten.Content = raw
-			}
-		}
-	}
-	recallLogger.Printf("rewritten_content=%q", rewritten.Content)
+	rewritten.Content = input.Content
+
 	query := rewritten.Content
-	queryVector := []float32(nil)
-	if s.embedder != nil {
-		if vector, err := s.embedder.Embed(ctx, query); err == nil {
-			queryVector = vector
-		}
-	}
-	vectorCandidates, _, err := s.repo.List(ctx, memory.ListInput{Page: 1, PageSize: 1000, State: memory.StateActive})
+	vectorCandidates, err := s.searchVectorCandidates(ctx, query, input.TopK)
 	if err != nil {
 		return nil, err
 	}
-	vectorRanked := rankBySimilarityScores(query, queryVector, vectorCandidates)
-	recallLogger.Printf("vector_search_results=%v", summarizeScoredCandidates(vectorRanked, input.TopK))
-	fullTextCandidates, err := s.repo.Search(ctx, query, input.TopK*2)
+	recallLogger.Printf("vector_search_results=%v", summarizeRecallCandidates(vectorCandidates))
+	fullTextCandidates, err := s.searchFullTextCandidates(ctx, query, input.TopK)
 	if err != nil {
-		fullTextCandidates = nil
+		return nil, err
 	}
-	recallLogger.Printf("full_search_results=%v", summarizeMemoryCandidates(fullTextCandidates, input.TopK))
-	vectorIDs := extractScoredIDs(vectorRanked)
-	fullTextIDs := extractIDs(fullTextCandidates)
-	rrfScores := computeRRFScores([][]string{vectorIDs, fullTextIDs}, 60)
-	mergedIDs := searchfusion.RRF([][]string{vectorIDs, fullTextIDs}, 60)
-	recallLogger.Printf("rrf_scores=%v", summarizeRRFScores(mergedIDs, rrfScores, input.TopK))
-	byID := map[string]memory.Memory{}
-	for _, item := range vectorCandidates {
-		byID[item.ID] = item
-	}
-	for _, item := range fullTextCandidates {
-		byID[item.ID] = item
-	}
-	results := make([]memory.RecallResult, 0, len(mergedIDs))
-	rawScores := make([]float64, 0, len(mergedIDs))
-	for _, id := range mergedIDs {
-		item, ok := byID[id]
-		if !ok || !item.Searchable() {
-			continue
-		}
-		score := searchrerank.Score(item, memory.Type(rewritten.Type), rewritten.Kinds)
-		results = append(results, memory.RecallResult{Memory: item, Score: score, Reason: "hybrid_recall"})
-		rawScores = append(rawScores, score)
-	}
+	recallLogger.Printf("full_search_results=%v", summarizeRecallCandidates(fullTextCandidates))
+	rrfCandidates := s.rrfCandidates(vectorCandidates, fullTextCandidates, input.TopK)
+	recallLogger.Printf("rrf_candidates=%v", summarizeRecallCandidates(rrfCandidates))
+	results := s.rerankCandidates(rrfCandidates, "hybrid_recall", time.Now().UTC())
 	if len(results) == 0 {
 		return nil, nil
 	}
-	recallLogger.Printf("final_scores=%v", summarizeRecallResults(results, input.TopK))
-	probs := searchrerank.Softmax(rawScores, input.Temperature)
-	for i := range results {
-		results[i].Score = probs[i]
+	recallLogger.Printf("final_scores=%v", summarizeRecallResults(results))
+
+	// enable softmax may cause unrelated candidates to be recalled
+	// it is interesting but need to use it carefully
+	if enabelSoftmax {
+		results = s.applySoftmaxScores(results, input.Temperature)
+		recallLogger.Printf("final_probabilities=%v", summarizeRecallResults(results))
+		return s.selectTopKByProbability(results, input.TopK), nil
+	} else {
+		return results[:input.TopK], nil
 	}
-	recallLogger.Printf("final_probabilities=%v", summarizeRecallResults(results, input.TopK))
-	sort.Slice(results, func(i, j int) bool { return results[i].Score > results[j].Score })
-	if len(results) > input.TopK {
-		results = results[:input.TopK]
-	}
-	return results, nil
 }
 
 type rewriteResult struct {
@@ -111,125 +85,181 @@ type rewriteResult struct {
 	Kinds   []string `json:"kinds"`
 }
 
-type scoredCandidate struct {
-	ID      string
-	Score   float64
-	Content string
-}
-
-func extractIDs(items []memory.Memory) []string {
-	ids := make([]string, 0, len(items))
-	for _, item := range items {
-		ids = append(ids, item.ID)
+func (s *Service) searchVectorCandidates(ctx context.Context, query string, topK int) ([]memory.RecallCandidate, error) {
+	if s.embedder == nil {
+		return nil, nil
 	}
-	return ids
-}
-
-func extractScoredIDs(items []scoredCandidate) []string {
-	ids := make([]string, 0, len(items))
-	for _, item := range items {
-		ids = append(ids, item.ID)
+	vector, err := s.embedder.Embed(ctx, query)
+	if err != nil {
+		return nil, nil
 	}
-	return ids
+	return s.repo.VectorSearch(ctx, vector, topK*2)
 }
 
-func rankBySimilarityScores(query string, queryVector []float32, items []memory.Memory) []scoredCandidate {
-	scoredItems := make([]scoredCandidate, 0, len(items))
-	for _, item := range items {
-		score := cosineLike(queryVector, item.Embedding)
-		if score == 0 {
-			score = textOverlapScore(query, item.Content)
+func (s *Service) searchFullTextCandidates(ctx context.Context, query string, topK int) ([]memory.RecallCandidate, error) {
+	return s.repo.FullTextSearch(ctx, query, topK*2)
+}
+
+func (s *Service) rrfCandidates(vectorCandidates, fullTextCandidates []memory.RecallCandidate, topK int) []memory.RecallCandidate {
+	vectorIDs := extractIDs(vectorCandidates)
+	fullTextIDs := extractIDs(fullTextCandidates)
+	rankedIDs := searchfusion.RRF([][]string{vectorIDs, fullTextIDs}, 60)
+	if len(rankedIDs) > topK*2 {
+		rankedIDs = rankedIDs[:topK*2]
+	}
+	mergedCandidates := mergeCandidatesByID(vectorCandidates, fullTextCandidates)
+	return orderCandidatesByIDs(rankedIDs, mergedCandidates)
+}
+
+func (s *Service) rerankCandidates(candidates []memory.RecallCandidate, reason string, now time.Time) []memory.RecallResult {
+	maxStoreCount := maxCandidateStoreCount(candidates)
+	maxFullTextScore := maxCandidateFullTextScore(candidates)
+	results := make([]memory.RecallResult, 0, len(candidates))
+	for _, candidate := range candidates {
+		if !candidate.Memory.Searchable() {
+			continue
 		}
-		scoredItems = append(scoredItems, scoredCandidate{ID: item.ID, Score: score, Content: contentSnippet(item.Content)})
+		score := searchrerank.Score(searchrerank.ScoreInput{
+			Candidate:        candidate,
+			Now:              now,
+			MaxStoreCount:    maxStoreCount,
+			MaxFullTextScore: maxFullTextScore,
+		})
+		results = append(results, memory.RecallResult{Memory: candidate.Memory, Score: score, Reason: reason})
 	}
-	sort.Slice(scoredItems, func(i, j int) bool { return scoredItems[i].Score > scoredItems[j].Score })
-	return scoredItems
+	return results
 }
 
-func cosineLike(left, right []float32) float64 {
-	if len(left) == 0 || len(right) == 0 {
-		return 0
+func (s *Service) applySoftmaxScores(results []memory.RecallResult, temperature float64) []memory.RecallResult {
+	rawScores := make([]float64, 0, len(results))
+	for _, result := range results {
+		rawScores = append(rawScores, result.Score)
 	}
-	limit := len(left)
-	if len(right) < limit {
-		limit = len(right)
+	probabilities := searchrerank.Softmax(rawScores, temperature)
+	scored := append([]memory.RecallResult(nil), results...)
+	for i := range scored {
+		scored[i].Score = probabilities[i]
 	}
-	var dot, leftNorm, rightNorm float64
-	for i := 0; i < limit; i++ {
-		lv := float64(left[i])
-		rv := float64(right[i])
-		dot += lv * rv
-		leftNorm += lv * lv
-		rightNorm += rv * rv
-	}
-	if leftNorm == 0 || rightNorm == 0 {
-		return 0
-	}
-	return dot / (math.Sqrt(leftNorm) * math.Sqrt(rightNorm))
+	return scored
 }
 
-func textOverlapScore(query, content string) float64 {
-	score := 0.0
-	for _, token := range []rune(query) {
-		for _, contentRune := range []rune(content) {
-			if token == contentRune {
-				score++
+func extractIDs(items []memory.RecallCandidate) []string {
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		ids = append(ids, item.Memory.ID)
+	}
+	return ids
+}
+
+func mergeCandidatesByID(groups ...[]memory.RecallCandidate) map[string]memory.RecallCandidate {
+	byID := map[string]memory.RecallCandidate{}
+	for _, group := range groups {
+		for _, candidate := range group {
+			existing, ok := byID[candidate.Memory.ID]
+			if !ok {
+				byID[candidate.Memory.ID] = candidate
+				continue
 			}
+			if existing.VectorDistance == nil {
+				existing.VectorDistance = candidate.VectorDistance
+			}
+			if existing.FullTextScore == nil {
+				existing.FullTextScore = candidate.FullTextScore
+			}
+			byID[candidate.Memory.ID] = existing
 		}
 	}
-	return score
+	return byID
 }
 
-func computeRRFScores(rankings [][]string, k float64) map[string]float64 {
-	scores := map[string]float64{}
-	for _, ranking := range rankings {
-		for i, id := range ranking {
-			scores[id] += 1.0 / (k + float64(i+1))
-		}
-	}
-	return scores
-}
-
-func summarizeScoredCandidates(items []scoredCandidate, limit int) []string {
-	if limit > 0 && len(items) > limit {
-		items = items[:limit]
-	}
-	out := make([]string, 0, len(items))
-	for _, item := range items {
-		out = append(out, item.ID+":"+formatFloat(item.Score))
-	}
-	return out
-}
-
-func summarizeMemoryCandidates(items []memory.Memory, limit int) []string {
-	if limit > 0 && len(items) > limit {
-		items = items[:limit]
-	}
-	out := make([]string, 0, len(items))
-	for _, item := range items {
-		out = append(out, item.ID+":"+contentSnippet(item.Content))
-	}
-	return out
-}
-
-func summarizeRRFScores(ids []string, scores map[string]float64, limit int) []string {
-	if limit > 0 && len(ids) > limit {
-		ids = ids[:limit]
-	}
-	out := make([]string, 0, len(ids))
+func orderCandidatesByIDs(ids []string, byID map[string]memory.RecallCandidate) []memory.RecallCandidate {
+	ordered := make([]memory.RecallCandidate, 0, len(ids))
 	for _, id := range ids {
-		out = append(out, id+":"+formatFloat(scores[id]))
+		candidate, ok := byID[id]
+		if !ok {
+			continue
+		}
+		ordered = append(ordered, candidate)
 	}
-	return out
+	return ordered
 }
 
-func summarizeRecallResults(results []memory.RecallResult, limit int) []string {
-	if limit > 0 && len(results) > limit {
-		results = results[:limit]
+func maxCandidateStoreCount(candidates []memory.RecallCandidate) int {
+	maxStoreCount := 0
+	for _, candidate := range candidates {
+		if candidate.Memory.StoreCount > maxStoreCount {
+			maxStoreCount = candidate.Memory.StoreCount
+		}
 	}
+	return maxStoreCount
+}
+
+func maxCandidateFullTextScore(candidates []memory.RecallCandidate) float64 {
+	maxScore := 0.0
+	for _, candidate := range candidates {
+		if candidate.FullTextScore == nil {
+			continue
+		}
+		if *candidate.FullTextScore > maxScore {
+			maxScore = *candidate.FullTextScore
+		}
+	}
+	return maxScore
+}
+
+func (s *Service) selectTopKByProbability(results []memory.RecallResult, topK int) []memory.RecallResult {
+	if topK <= 0 || len(results) <= topK {
+		sort.Slice(results, func(i, j int) bool { return results[i].Score > results[j].Score })
+		return results
+	}
+
+	remaining := append([]memory.RecallResult(nil), results...)
+	selected := make([]memory.RecallResult, 0, topK)
+	for len(selected) < topK && len(remaining) > 0 {
+		selectedIndex := pickByProbability(remaining, s.randFloat())
+		selected = append(selected, remaining[selectedIndex])
+		remaining = append(remaining[:selectedIndex], remaining[selectedIndex+1:]...)
+	}
+	sort.Slice(selected, func(i, j int) bool { return selected[i].Score > selected[j].Score })
+	return selected
+}
+
+func pickByProbability(results []memory.RecallResult, draw float64) int {
+	total := 0.0
+	for _, result := range results {
+		total += result.Score
+	}
+	if total <= 0 {
+		return 0
+	}
+	threshold := draw * total
+	cumulative := 0.0
+	for i, result := range results {
+		cumulative += result.Score
+		if threshold <= cumulative {
+			return i
+		}
+	}
+	return len(results) - 1
+}
+
+func summarizeRecallResults(results []memory.RecallResult) []string {
 	out := make([]string, 0, len(results))
 	for _, result := range results {
-		out = append(out, result.Memory.ID+":"+formatFloat(result.Score))
+		out = append(out, contentSnippet(result.Memory.Content)+"("+result.Memory.ID+")"+":"+formatFloat(result.Score))
+	}
+	return out
+}
+
+func summarizeRecallCandidates(candidates []memory.RecallCandidate) []string {
+	out := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		out = append(out,
+			candidate.Memory.ID+":"+
+				contentSnippet(candidate.Memory.Content)+
+				":distance="+formatOptionalFloat(candidate.VectorDistance)+
+				":score="+formatOptionalFloat(candidate.FullTextScore),
+		)
 	}
 	return out
 }
@@ -246,4 +276,11 @@ func contentSnippet(value string) string {
 
 func formatFloat(value float64) string {
 	return strings.TrimRight(strings.TrimRight(strconv.FormatFloat(value, 'f', 6, 64), "0"), ".")
+}
+
+func formatOptionalFloat(value *float64) string {
+	if value == nil {
+		return "nil"
+	}
+	return formatFloat(*value)
 }
