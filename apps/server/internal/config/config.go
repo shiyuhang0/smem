@@ -11,52 +11,46 @@ import (
 )
 
 type Config struct {
-	ServerAddr           string
-	DBDSN                string
-	DBTLSServerName      string
-	OpenAIBaseURL        string
-	OpenAIAPIKey         string
-	OpenAIChatModel      string
-	OpenAIEmbeddingModel string
-	EmbeddingDim         int
-	RecallDefaultTopK    int
-	RecallMaxTopK        int
-	RecallTemperature    float64
-	EnableFullText       bool
-	LogLevel             string
+	ServerAddr        string
+	DBDSN             string
+	DBTLSServerName   string
+	OpenAIBaseURL     string
+	OpenAIAPIKey      string
+	OpenAIChatModel   string
+	EmbeddingProvider string
+	EmbeddingBaseURL  string
+	EmbeddingAPIKey   string
+	EmbeddingModel    string
+	EmbeddingDim      int
 }
 
 type fileConfig struct {
-	ServerAddr           *string  `yaml:"server_addr"`
-	DBDSN                *string  `yaml:"db_dsn"`
-	DBTLSServerName      *string  `yaml:"db_tls_server_name"`
-	OpenAIBaseURL        *string  `yaml:"openai_base_url"`
-	OpenAIAPIKey         *string  `yaml:"openai_api_key"`
-	OpenAIChatModel      *string  `yaml:"openai_chat_model"`
-	OpenAIEmbeddingModel *string  `yaml:"openai_embedding_model"`
-	EmbeddingDim         *int     `yaml:"embedding_dim"`
-	RecallDefaultTopK    *int     `yaml:"recall_default_topk"`
-	RecallMaxTopK        *int     `yaml:"recall_max_topk"`
-	RecallTemperature    *float64 `yaml:"recall_temperature"`
-	EnableFullText       *bool    `yaml:"enable_fulltext"`
-	LogLevel             *string  `yaml:"log_level"`
+	ServerAddr        *string `yaml:"server_addr"`
+	DBDSN             *string `yaml:"db_dsn"`
+	DBTLSServerName   *string `yaml:"db_tls_server_name"`
+	OpenAIBaseURL     *string `yaml:"openai_base_url"`
+	OpenAIAPIKey      *string `yaml:"openai_api_key"`
+	OpenAIChatModel   *string `yaml:"openai_chat_model"`
+	EmbeddingProvider *string `yaml:"embedding_provider"`
+	EmbeddingBaseURL  *string `yaml:"embedding_base_url"`
+	EmbeddingAPIKey   *string `yaml:"embedding_api_key"`
+	EmbeddingModel    *string `yaml:"embedding_model"`
+	EmbeddingDim      *int    `yaml:"embedding_dim"`
 }
 
 func Load() (Config, error) {
 	cfg := Config{
-		ServerAddr:           stringWithDefault("SERVER_ADDR", ":8080"),
-		DBDSN:                strings.TrimSpace(os.Getenv("DB_DSN")),
-		DBTLSServerName:      strings.TrimSpace(os.Getenv("DB_TLS_SERVER_NAME")),
-		OpenAIBaseURL:        stringWithDefault("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-		OpenAIAPIKey:         strings.TrimSpace(os.Getenv("OPENAI_API_KEY")),
-		OpenAIChatModel:      stringWithDefault("OPENAI_CHAT_MODEL", "gpt-4.1-mini"),
-		OpenAIEmbeddingModel: stringWithDefault("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"),
-		EmbeddingDim:         intWithDefault("EMBEDDING_DIM", 1536),
-		RecallDefaultTopK:    intWithDefault("RECALL_DEFAULT_TOPK", 5),
-		RecallMaxTopK:        intWithDefault("RECALL_MAX_TOPK", 10),
-		RecallTemperature:    floatWithDefault("RECALL_TEMPERATURE", 1.0),
-		EnableFullText:       boolWithDefault("ENABLE_FULLTEXT", true),
-		LogLevel:             stringWithDefault("LOG_LEVEL", "info"),
+		ServerAddr:        stringWithDefault("SERVER_ADDR", ":8080"),
+		DBDSN:             strings.TrimSpace(os.Getenv("DB_DSN")),
+		DBTLSServerName:   strings.TrimSpace(os.Getenv("DB_TLS_SERVER_NAME")),
+		OpenAIBaseURL:     stringWithDefault("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+		OpenAIAPIKey:      strings.TrimSpace(os.Getenv("OPENAI_API_KEY")),
+		OpenAIChatModel:   stringWithDefault("OPENAI_CHAT_MODEL", "gpt-4.1-mini"),
+		EmbeddingProvider: strings.TrimSpace(os.Getenv("EMBEDDING_PROVIDER")),
+		EmbeddingBaseURL:  strings.TrimSpace(os.Getenv("EMBEDDING_BASE_URL")),
+		EmbeddingAPIKey:   strings.TrimSpace(os.Getenv("EMBEDDING_API_KEY")),
+		EmbeddingModel:    strings.TrimSpace(os.Getenv("EMBEDDING_MODEL")),
+		EmbeddingDim:      intWithDefault("EMBEDDING_DIM", 0),
 	}
 
 	path, explicit := resolveConfigPath()
@@ -69,6 +63,7 @@ func Load() (Config, error) {
 			cfg = mergeFileConfig(cfg, *loaded)
 		}
 	}
+	cfg = normalizeEmbeddingConfig(cfg)
 
 	if cfg.DBDSN == "" {
 		return Config{}, fmt.Errorf("DB_DSN is required")
@@ -76,17 +71,11 @@ func Load() (Config, error) {
 	if cfg.OpenAIAPIKey == "" {
 		return Config{}, fmt.Errorf("OPENAI_API_KEY is required")
 	}
-	if cfg.RecallDefaultTopK < 1 || cfg.RecallDefaultTopK > 10 {
-		return Config{}, fmt.Errorf("RECALL_DEFAULT_TOPK must be between 1 and 10")
-	}
-	if cfg.RecallMaxTopK < 1 || cfg.RecallMaxTopK > 10 {
-		return Config{}, fmt.Errorf("RECALL_MAX_TOPK must be between 1 and 10")
-	}
-	if cfg.RecallDefaultTopK > cfg.RecallMaxTopK {
-		return Config{}, fmt.Errorf("RECALL_DEFAULT_TOPK cannot exceed RECALL_MAX_TOPK")
-	}
 	if cfg.EmbeddingDim <= 0 {
 		return Config{}, fmt.Errorf("EMBEDDING_DIM must be positive")
+	}
+	if cfg.EmbeddingProvider != "ollama" && cfg.EmbeddingProvider != "openai" {
+		return Config{}, fmt.Errorf("EMBEDDING_PROVIDER must be ollama or openai")
 	}
 
 	return cfg, nil
@@ -140,26 +129,52 @@ func mergeFileConfig(cfg Config, file fileConfig) Config {
 	if file.OpenAIChatModel != nil {
 		cfg.OpenAIChatModel = strings.TrimSpace(*file.OpenAIChatModel)
 	}
-	if file.OpenAIEmbeddingModel != nil {
-		cfg.OpenAIEmbeddingModel = strings.TrimSpace(*file.OpenAIEmbeddingModel)
+	if file.EmbeddingProvider != nil {
+		cfg.EmbeddingProvider = strings.TrimSpace(*file.EmbeddingProvider)
+	}
+	if file.EmbeddingBaseURL != nil {
+		cfg.EmbeddingBaseURL = strings.TrimSpace(*file.EmbeddingBaseURL)
+	}
+	if file.EmbeddingAPIKey != nil {
+		cfg.EmbeddingAPIKey = strings.TrimSpace(*file.EmbeddingAPIKey)
+	}
+	if file.EmbeddingModel != nil {
+		cfg.EmbeddingModel = strings.TrimSpace(*file.EmbeddingModel)
 	}
 	if file.EmbeddingDim != nil {
 		cfg.EmbeddingDim = *file.EmbeddingDim
 	}
-	if file.RecallDefaultTopK != nil {
-		cfg.RecallDefaultTopK = *file.RecallDefaultTopK
+	return cfg
+}
+
+func normalizeEmbeddingConfig(cfg Config) Config {
+	cfg.EmbeddingProvider = strings.TrimSpace(cfg.EmbeddingProvider)
+	if cfg.EmbeddingProvider == "" {
+		cfg.EmbeddingProvider = "ollama"
 	}
-	if file.RecallMaxTopK != nil {
-		cfg.RecallMaxTopK = *file.RecallMaxTopK
+	if cfg.EmbeddingProvider == "openai" {
+		if cfg.EmbeddingBaseURL == "" {
+			cfg.EmbeddingBaseURL = cfg.OpenAIBaseURL
+		}
+		if cfg.EmbeddingAPIKey == "" {
+			cfg.EmbeddingAPIKey = cfg.OpenAIAPIKey
+		}
+		if cfg.EmbeddingModel == "" {
+			cfg.EmbeddingModel = "text-embedding-3-small"
+		}
+		if cfg.EmbeddingDim == 0 {
+			cfg.EmbeddingDim = 1536
+		}
+		return cfg
 	}
-	if file.RecallTemperature != nil {
-		cfg.RecallTemperature = *file.RecallTemperature
+	if cfg.EmbeddingBaseURL == "" {
+		cfg.EmbeddingBaseURL = "http://localhost:11434"
 	}
-	if file.EnableFullText != nil {
-		cfg.EnableFullText = *file.EnableFullText
+	if cfg.EmbeddingModel == "" {
+		cfg.EmbeddingModel = "bge-m3"
 	}
-	if file.LogLevel != nil {
-		cfg.LogLevel = strings.TrimSpace(*file.LogLevel)
+	if cfg.EmbeddingDim == 0 {
+		cfg.EmbeddingDim = 1024
 	}
 	return cfg
 }
@@ -178,30 +193,6 @@ func intWithDefault(key string, fallback int) int {
 		return fallback
 	}
 	parsed, err := strconv.Atoi(value)
-	if err != nil {
-		return fallback
-	}
-	return parsed
-}
-
-func floatWithDefault(key string, fallback float64) float64 {
-	value := strings.TrimSpace(os.Getenv(key))
-	if value == "" {
-		return fallback
-	}
-	parsed, err := strconv.ParseFloat(value, 64)
-	if err != nil {
-		return fallback
-	}
-	return parsed
-}
-
-func boolWithDefault(key string, fallback bool) bool {
-	value := strings.TrimSpace(os.Getenv(key))
-	if value == "" {
-		return fallback
-	}
-	parsed, err := strconv.ParseBool(value)
 	if err != nil {
 		return fallback
 	}

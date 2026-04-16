@@ -11,14 +11,23 @@ import (
 )
 
 func PrepareDSN(cfg config.Config) (string, error) {
-	if cfg.DBTLSServerName == "" || !strings.Contains(cfg.DBDSN, "tls=tidb") {
-		return cfg.DBDSN, nil
+	if cfg.DBTLSServerName != "" {
+		if err := gosqlmysql.RegisterTLSConfig("tidb", &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			ServerName: cfg.DBTLSServerName,
+		}); err != nil && !strings.Contains(err.Error(), "already exists") {
+			return "", fmt.Errorf("register db tls config: %w", err)
+		}
 	}
-	if err := gosqlmysql.RegisterTLSConfig("tidb", &tls.Config{
-		MinVersion: tls.VersionTLS12,
-		ServerName: cfg.DBTLSServerName,
-	}); err != nil && !strings.Contains(err.Error(), "already exists") {
-		return "", fmt.Errorf("register db tls config: %w", err)
+
+	dsn, err := gosqlmysql.ParseDSN(cfg.DBDSN)
+	if err != nil {
+		return "", fmt.Errorf("parse db dsn: %w", err)
 	}
-	return cfg.DBDSN, nil
+	dsn.ParseTime = true
+	if cfg.DBTLSServerName != "" {
+		dsn.TLSConfig = "tidb"
+	}
+
+	return dsn.FormatDSN(), nil
 }

@@ -7,6 +7,7 @@
 - Go 1.25+
 - 一个可访问的 TiDB 实例
 - 一个 OpenAI-compatible API endpoint
+- 一个可访问的 embedding provider
 
 ## 2. 配置文件或环境变量
 
@@ -24,9 +25,11 @@ cp config.yaml.example config.yaml
 最少需要：
 
 ```bash
-export DB_DSN='user:password@tcp(host:4000)/smem?tls=tidb'
+export DB_DSN='user:password@tcp(host:4000)/smem'
 export DB_TLS_SERVER_NAME='gateway01.ap-southeast-1.prod.aws.tidbcloud.com'
 export OPENAI_API_KEY='your-api-key'
+export EMBEDDING_PROVIDER='openai'
+export EMBEDDING_DIM='1536'
 ```
 
 可选：
@@ -34,8 +37,19 @@ export OPENAI_API_KEY='your-api-key'
 ```bash
 export OPENAI_BASE_URL='https://api.openai.com/v1'
 export OPENAI_CHAT_MODEL='gpt-4.1-mini'
-export OPENAI_EMBEDDING_MODEL='text-embedding-3-small'
+export EMBEDDING_BASE_URL='https://api.openai.com/v1'
+export EMBEDDING_API_KEY='your-api-key'
+export EMBEDDING_MODEL='text-embedding-3-small'
 export SERVER_ADDR=':8080'
+```
+
+如果你不显式设置 embedding 配置，当前默认会使用本机 `Ollama`：
+
+```bash
+export EMBEDDING_PROVIDER='ollama'
+export EMBEDDING_BASE_URL='http://localhost:11434'
+export EMBEDDING_MODEL='bge-m3'
+export EMBEDDING_DIM='1024'
 ```
 
 如果你不想把配置文件放在 `apps/server/config.yaml`，也可以显式指定：

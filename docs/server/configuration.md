@@ -16,6 +16,7 @@
 
 - `DB_DSN`: TiDB 连接串
 - `OPENAI_API_KEY`: OpenAI-compatible API key
+- 有效的 embedding 配置：服务端必须能解析出可用的 `EMBEDDING_PROVIDER`、`EMBEDDING_MODEL` 和 `EMBEDDING_DIM`
 
 ## Configuration File Keys
 
@@ -27,28 +28,24 @@
 - `openai_base_url`
 - `openai_api_key`
 - `openai_chat_model`
-- `openai_embedding_model`
+- `embedding_provider`
+- `embedding_base_url`
+- `embedding_api_key`
+- `embedding_model`
 - `embedding_dim`
-- `recall_default_topk`
-- `recall_max_topk`
-- `recall_temperature`
-- `enable_fulltext`
-- `log_level`
 
 ## Optional
 
 - `SERVER_ADDR`: 默认 `:8080`
 - `SMEM_CONFIG_FILE`: 显式指定配置文件路径；设置后若文件不存在会报错
-- `DB_TLS_SERVER_NAME`: 当 `DB_DSN` 使用 `tls=tidb` 时可选，用于注册 TiDB TLS `ServerName`
+- `DB_TLS_SERVER_NAME`: 配置后会自动为 TiDB 连接注册 TLS `ServerName`，并在运行时注入 `tls=tidb`
 - `OPENAI_BASE_URL`: 默认 `https://api.openai.com/v1`
 - `OPENAI_CHAT_MODEL`: 默认 `gpt-4.1-mini`
-- `OPENAI_EMBEDDING_MODEL`: 默认 `text-embedding-3-small`
-- `EMBEDDING_DIM`: 默认 `1536`
-- `RECALL_DEFAULT_TOPK`: 默认 `5`
-- `RECALL_MAX_TOPK`: 默认 `10`
-- `RECALL_TEMPERATURE`: 默认 `1.0`
-- `ENABLE_FULLTEXT`: 默认 `true`
-- `LOG_LEVEL`: 默认 `info`
+- `EMBEDDING_PROVIDER`: 默认 `ollama`
+- `EMBEDDING_BASE_URL`: `EMBEDDING_PROVIDER=openai` 时默认回退到 `OPENAI_BASE_URL`；`EMBEDDING_PROVIDER=ollama` 时默认 `http://localhost:11434`
+- `EMBEDDING_API_KEY`: `EMBEDDING_PROVIDER=openai` 时默认回退到 `OPENAI_API_KEY`
+- `EMBEDDING_MODEL`: `EMBEDDING_PROVIDER=openai` 时默认 `text-embedding-3-small`；`EMBEDDING_PROVIDER=ollama` 时默认 `bge-m3`
+- `EMBEDDING_DIM`: `EMBEDDING_PROVIDER=openai` 时默认 `1536`；`EMBEDDING_PROVIDER=ollama` 时默认 `1024`
 
 ## 重试策略
 
@@ -64,3 +61,10 @@
 - smart ingest 的 LLM 抽取失败时，自动降级为 normal ingest
 - recall 的 query rewrite 失败时，自动回退为原始 query
 - fulltext 搜索失败时，只返回 vector 路径结果
+
+## 配置建议
+
+- 如果部署在远端服务器，除非你明确运行了 Ollama，否则不要依赖默认的 `ollama` 配置
+- 使用 `EMBEDDING_PROVIDER=openai` 时，通常还需要同时设置 `EMBEDDING_DIM=1536`
+- 使用 `EMBEDDING_PROVIDER=ollama` 时，通常还需要确认 `EMBEDDING_BASE_URL` 可达，且 `EMBEDDING_DIM` 与模型维度一致
+- 虽然 embedding 有默认值，但默认会走本机 `Ollama + bge-m3 + 1024`，部署前应明确确认这是否符合你的环境

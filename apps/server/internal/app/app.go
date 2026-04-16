@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 
 	"gorm.io/driver/mysql"
@@ -44,9 +45,10 @@ func New(cfg config.Config) (*App, error) {
 	llmProvider := llm.NewOpenAIProvider(llm.Config{
 		BaseURL: cfg.OpenAIBaseURL, APIKey: cfg.OpenAIAPIKey, Model: cfg.OpenAIChatModel, Retry: retryPolicy,
 	})
-	embeddingProvider := embedding.NewOpenAIProvider(embedding.Config{
-		BaseURL: cfg.OpenAIBaseURL, APIKey: cfg.OpenAIAPIKey, Model: cfg.OpenAIEmbeddingModel, Retry: retryPolicy,
-	})
+	embeddingProvider, err := newEmbeddingProvider(cfg, retryPolicy)
+	if err != nil {
+		return nil, err
+	}
 	worker := ingest.NewEmbeddingWorker(repo, embeddingProvider, cfg.EmbeddingDim)
 	ingestService := ingest.NewService(memoryService, repo, worker, llmProvider)
 	recallService := recall.NewService(repo, embeddingProvider, llmProvider)
@@ -60,6 +62,20 @@ func New(cfg config.Config) (*App, error) {
 			Handler: NewRouter(cfg, memoryHandler),
 		},
 	}, nil
+}
+
+func newEmbeddingProvider(cfg config.Config, retryPolicy retry.Policy) (embedding.Provider, error) {
+	providerConfig := embedding.Config{
+		BaseURL: cfg.EmbeddingBaseURL, APIKey: cfg.EmbeddingAPIKey, Model: cfg.EmbeddingModel, Retry: retryPolicy,
+	}
+	switch cfg.EmbeddingProvider {
+	case "ollama":
+		return embedding.NewOllamaProvider(providerConfig), nil
+	case "openai":
+		return embedding.NewOpenAIProvider(providerConfig), nil
+	default:
+		return nil, fmt.Errorf("unsupported embedding provider: %s", cfg.EmbeddingProvider)
+	}
 }
 
 func newID() string {

@@ -17,29 +17,13 @@ func TestLoadDefaults(t *testing.T) {
 	require.Equal(t, ":8080", cfg.ServerAddr)
 	require.Equal(t, "https://api.openai.com/v1", cfg.OpenAIBaseURL)
 	require.Equal(t, "gpt-4.1-mini", cfg.OpenAIChatModel)
-	require.Equal(t, "text-embedding-3-small", cfg.OpenAIEmbeddingModel)
 	require.Equal(t, 1536, cfg.EmbeddingDim)
-	require.Equal(t, 5, cfg.RecallDefaultTopK)
-	require.Equal(t, 10, cfg.RecallMaxTopK)
-	require.Equal(t, 1.0, cfg.RecallTemperature)
-	require.True(t, cfg.EnableFullText)
-	require.Equal(t, "info", cfg.LogLevel)
 }
 
 func TestLoadRequiresDSNAndAPIKey(t *testing.T) {
 	_, err := Load()
 	require.Error(t, err)
 	require.ErrorContains(t, err, "DB_DSN")
-}
-
-func TestLoadRejectsInvalidRecallSettings(t *testing.T) {
-	t.Setenv("DB_DSN", "root:pass@tcp(localhost:4000)/smem?parseTime=true")
-	t.Setenv("OPENAI_API_KEY", "test-key")
-	t.Setenv("RECALL_DEFAULT_TOPK", "11")
-
-	_, err := Load()
-	require.Error(t, err)
-	require.ErrorContains(t, err, "RECALL_DEFAULT_TOPK")
 }
 
 func TestLoadUsesConfigFileValuesBeforeEnv(t *testing.T) {

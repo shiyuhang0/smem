@@ -22,7 +22,6 @@
 - 服务端概览：`docs/server/overview.md`
 - 服务端 API：`docs/server/api.md`
 - 服务端配置：`docs/server/configuration.md`
-- 本地启动：`docs/deploy/server-local.md`
 - TiDB Cloud 部署：`docs/deploy/server-tidb-cloud.md`
 - 仓库快速上手：`docs/getting-started.md`
 
