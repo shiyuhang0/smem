@@ -25,7 +25,7 @@
 - memory：系统中的记忆单元。
 - plugin：openclaw 的 memory plugin，负责自动记忆存储和召回。
 - type：记忆垂直类型。
-- kind：横向关联记忆分类。
+- kinds：横向关联记忆分类。
 - scope：记忆范围字段，当前为预留设计。
 - state：记忆状态。
 - normal mode：普通存储模式。
@@ -44,6 +44,8 @@
 
 ## Server Design
 
+技术栈偏好: Go + Gin + GORM + TiDB + AI SDK
+
 ### Purpose
 
 提供 memory 的存储、管理、搜索与召回能力。
@@ -51,7 +53,7 @@
 ### Capabilities
 
 - 向外提供 memory 的增删改查与搜索接口。
-  - 创建接口：存储 memory，可能覆盖原有 memory。
+  - 创建接口：创建 memory，或在 smart mode 下智能决定 create / update。
   - 查询接口：根据 id 查询 memory。
   - 列表接口：查询 memory 列表，支持分页。
   - 搜索接口：根据关键词搜索相关 memory。
@@ -84,7 +86,7 @@ GET /api/v1/memories?search=xxx
 
 ### Memory Kind
 
-`kind` 表示横向关联记忆，可拓展。一条记忆可同属于多个 `kind`，可为空。包括但不限于：
+`kinds` 表示横向关联记忆，可拓展。一条记忆可同属于多个 `kinds`，可为空。请求输入若只传单个 `kind`，服务端可转换为单元素 `kinds` 处理。包括但不限于：
 
 - `skill`
 - `task`
@@ -97,7 +99,7 @@ GET /api/v1/memories?search=xxx
 
 ### Memory Scope
 
-`scope` 表示记忆范围，为预留字段。先不实现，默认为全 user。
+`scope` 表示记忆范围，为保留字段。v1 仅存储，不参与过滤、召回、排序与隔离逻辑，默认值为 `user`。
 
 - `user`：用户记忆。
 - `agent`：agent 记忆。
@@ -109,13 +111,15 @@ GET /api/v1/memories?search=xxx
 - `active`：可用状态，正常被查询和使用。
 - `archived`：归档状态，不被查询和使用，但保留在系统中，可供后续恢复或审计。
 
+状态规则：`creating` 不参与搜索、召回和默认列表查询；`active` 可被搜索、召回和正常使用；`archived` 不参与搜索和召回。
+
 ### Database Design
 
-memory 至少包含以下基础字段：`id`、`content`、`embedding`、`type`、`kind`、`scope`、`state`、`created_at`、`updated_at`、`store_count`。
+memory 至少包含以下基础字段：`id`、`content`、`embedding`、`type`、`kinds`、`scope`、`state`、`created_at`、`updated_at`、`content_hash`、`version`。
 
-基于最终设计需要，还可包含更多管理字段，如 `hash`、`agent_id`、`session_id`、`version`、`metadata` 等。`metadata` 可用于任何召回后的过滤。
+基于最终设计需要，还可包含更多管理字段，如 `store_count`、`use_count`、`last_accessed_at`、`agent_id`、`session_id`、`metadata` 等。他们可以用于任何召回后精排过滤。
 
-以下为示例，不一定要完全遵循：
+以下为示例，不要完全遵循，不要完全遵循，不要完全遵循。
 
 ```sql
 CREATE TABLE memories (
@@ -125,16 +129,15 @@ CREATE TABLE memories (
   content_hash    VARCHAR(64) NULL,            -- content 的 hash 值，用于去重
   type            VARCHAR(20),                 -- 记忆类型：fact/episodic/procedural
   scope           VARCHAR(20) DEFAULT 'user',  -- 记忆范围：user/agent/external
-  kind            VARCHAR(50),                 -- 主记忆种类：skill/task/lesson/workflow/preference/profile/note
   kinds           JSON,                        -- 记忆种类列表
   metadata        JSON,                        -- 元数据
   agent_id        VARCHAR(100),                -- Agent ID
   session_id      VARCHAR(100),                -- 会话 ID
   source          VARCHAR(100),                -- 记忆来源，如 plugin、manual 等
-  state           VARCHAR(20) DEFAULT 'active',-- active/archived
+  state           VARCHAR(20) DEFAULT 'active',-- creating/active/archived
   version         INT DEFAULT 1,               -- 乐观锁版本
   store_count     INT DEFAULT 0,               -- 存储次数，用于衡量记忆的重要程度
-  last_accessed_at TIMESTAMP,                    -- 上次访问时间
+  last_accessed_at TIMESTAMP,                  -- 上次被召回并注入 prompt 的时间
   use_count       INT DEFAULT 0,               -- 使用次数，用于衡量记忆的重要程度
   created_at      TIMESTAMP,
   updated_at      TIMESTAMP,
@@ -142,7 +145,7 @@ CREATE TABLE memories (
   INDEX idx_memory_type (type),
   INDEX idx_state (state),
   INDEX idx_agent (agent_id),
-  INDEX idx_session (session_id)
+  INDEX idx_session (session_id),
   UNIQUE INDEX idx_content_hash (content_hash)
 );
 ```
@@ -157,16 +160,20 @@ CREATE TABLE memories (
 
 创建记忆（存储记忆）时，支持两种模式：
 
-1. normal mode：必须提供 `content`，可选提供 `type`、`scope`、`kind`。直接 embedding 完存储。
+1. normal mode：必须提供 `content`，可选提供 `type`、`scope`、`kinds`。直接 embedding 完存储。
 2. smart mode：必须提供 `content`，可选提供 `scope`。
-   1. 使用 prompt 基于 LLM 自动提取关键信息，生成一条或多条的 `content`+`type`+`kind` 组合，最多10条。
-   2. 召回相关记忆，使用 prompt 基于 LLM 进行记忆融合，判断：更新记忆 or 创建记忆，及时记忆相同也要更新一次，为了更新时间
-   3. 最终存储时，进行 embedding 存储。注意基于 content hash 去重
+   1. 使用 prompt 基于 LLM 自动提取关键信息，生成一条或多条原子化的 `content` + `type` + `kinds` 组合，最多 10 条。
+   2. 召回相关记忆，使用 prompt 基于 LLM 进行记忆融合。对每条候选记忆只允许三种决策：`ignore`、`create`、`update`。
+   3. 若判定为 `update`，需要明确对应的已有 memory。若内容完全相同，则只更新 `updated_at` 与 `store_count`；若语义相同但新内容更完整，可更新 `content` 并递增 `version`。
+   4. 最终存储时，进行 embedding 存储。`content_hash` 用于精确去重；命中相同 `content_hash` 时，不创建新记录，而是更新对应记录的 `updated_at` 与 `store_count`。
 
 关键点
 
 1. 异步存储：存储为 `creating` 状态即返回成功，直到完成 embedding 后更新为 `active` 状态。
 2. 智能模式下，我希望 LLM 自动提取关键信息时，尽量提取尽量小和原子的内容。
+3. 一条 durable memory 应尽量只表达一个事实、偏好、决策或流程要点，不应直接把整轮会话摘要作为单条 memory 存储。
+4. `POST /api/v1/memories` 用于 normal mode 或 smart mode 写入，smart mode 下服务端可决定 `create` 或 `update`；`PUT /api/v1/memories/{id}` 仅用于对指定 memory 的显式更新。
+5. 失败降级策略：当 LLM 提取失败时，smart mode 降级为 normal mode；当 embedding 失败时，memory 保持非 `active` 状态并等待重试。
 
 ## Recall Design
 
@@ -183,16 +190,18 @@ CREATE TABLE memories (
 
 假设要求召回 top k 条相关记忆，召回流程如下：
 
-1. 对 `content1` 使用 prompt 基于 LLM 自动提取关键信息，生成 `content2`、`type`、`kind`。
+1. 对 `content1` 使用 prompt 基于 LLM 自动提取关键信息，生成 `content2`、`type`、`kinds`。其中 `content2` 用作 recall query rewrite，`type`、`kinds` 默认只用于排序加权，不作为硬过滤条件。
 2. 基于 `content2` 粗排。
    1. 基于向量搜索 2k 条记忆，只搜 `active` 状态的记忆。
    2. 基于全文搜索 2k 条记忆，只搜 `active` 状态的记忆。
    3. 使用 RRF 融合两种搜索结果，得到最终 2k 到 4k 条记忆。
 3. rerank 精排。
    1. 打分策略：
-      1. 基于 `type`、 `kind` 匹配度、最近更新时间、存储次数等方面设置权重进行打分。
+      1. 基于 `type`、`kinds` 匹配度、最近更新时间、存储次数等方面设置权重进行打分。
       2. 暂不实现：可插拔 reranker，如 `CohereReranker`、`cross-encoder`。
    2. 对得分进行 softmax，按概率召回，并设置 `Temperature` 参数，让记忆更发散。
+
+失败降级策略：当全文检索不可用时，召回流程退化为仅向量搜索。
 
 ### Key Decision
 
@@ -213,7 +222,7 @@ CREATE TABLE memories (
 - `before_prompt_build`
   - 提供两种模式：
   - 默认模式：传入 prompt，请求服务端搜索，召回注入到 prompt 中。
-  - `prebuild` 模式：除了第一轮对话，直接注入上一轮对话召回的记忆。
+  - `prebuild` 模式：除了第一轮对话，直接注入上一轮对话召回的记忆。该模式仅复用相邻轮次的结果；当用户输入主题明显变化时，应放弃复用并重新搜索。
 
 ### Key Decision
 
@@ -227,12 +236,13 @@ CREATE TABLE memories (
 
 ## Dashboard Design
 
-需要提供一个 dashboard，用于展示记忆内容，界面可以更 fancy。
+需要提供一个 dashboard，用于展示记忆内容。v1 至少包含以下能力：
 
-## References
+- 浏览和搜索 memory，浏览需要一个炫酷的网状图案展示 memory 之间的关联关系。
+- 查看 memory 的内容、类型、状态、更新时间、使用次数等元数据。
+- 支持手动编辑、删除或归档 memory。
 
-- BM25 是什么：全文检索。
-- digest 不参与召回：向量搜索，只能搜索后过滤。
+技术栈偏好：：Vite + React 19 + TypeScript + Tailwind CSS 4 + shadcn/ui + TanStack
 
 ## Future
 
@@ -240,4 +250,4 @@ CREATE TABLE memories (
 
 摘要设计：
 
-- openclaw `session_end`、`reset`: 获取最近 5 轮对话内容，提取摘要，并存储
+- v1 不包含摘要设计。后续版本可在 openclaw `session_end`、`reset` 时获取最近 5 轮对话内容，提取摘要，并存储。

@@ -1,0 +1,17 @@
+server_addr: ":8080"
+
+db_dsn: "user:password@tcp(gateway01.ap-southeast-1.prod.aws.tidbcloud.com:4000)/smem?tls=tidb"
+db_tls_server_name: "gateway01.ap-southeast-1.prod.aws.tidbcloud.com"
+
+openai_base_url: "https://api.openai.com/v1"
+openai_api_key: "your-api-key"
+openai_chat_model: "gpt-4.1-mini"
+openai_embedding_model: "text-embedding-3-small"
+
+embedding_dim: 1536
+recall_default_topk: 5
+recall_max_topk: 10
+recall_temperature: 1.0
+
+enable_fulltext: true
+log_level: "info"

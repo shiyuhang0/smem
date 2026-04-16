@@ -1,0 +1,171 @@
+openapi: 3.1.0
+info:
+  title: SMEM Server API
+  version: 0.1.0
+servers:
+  - url: http://localhost:8080
+paths:
+  /healthz:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+  /api/v1/memories:
+    post:
+      summary: Create memories
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMemoryRequest'
+      responses:
+        '202':
+          description: Accepted
+    get:
+      summary: List or search memories
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: page_size
+          schema:
+            type: integer
+        - in: query
+          name: search
+          schema:
+            type: string
+        - in: query
+          name: state
+          schema:
+            type: string
+        - in: query
+          name: type
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List result
+  /api/v1/memories/{id}:
+    get:
+      summary: Get one memory
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Memory
+        '404':
+          description: Not found
+    put:
+      summary: Update one memory
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMemoryRequest'
+      responses:
+        '200':
+          description: Updated memory
+    delete:
+      summary: Delete one memory
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted
+  /api/v1/memories/recall:
+    post:
+      summary: Recall memories
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecallRequest'
+      responses:
+        '200':
+          description: Recall result
+components:
+  schemas:
+    CreateMemoryRequest:
+      type: object
+      required: [content, mode]
+      properties:
+        content:
+          type: string
+        mode:
+          type: string
+          enum: [normal, smart]
+        type:
+          type: string
+          enum: [fact, episodic, procedural]
+        kinds:
+          type: array
+          items:
+            type: string
+        scope:
+          type: string
+          enum: [user, agent, external]
+        metadata:
+          type: object
+        agent_id:
+          type: string
+        session_id:
+          type: string
+        source:
+          type: string
+    UpdateMemoryRequest:
+      type: object
+      properties:
+        content:
+          type: string
+        type:
+          type: string
+        kinds:
+          type: array
+          items:
+            type: string
+        scope:
+          type: string
+        state:
+          type: string
+        metadata:
+          type: object
+    RecallRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+        top_k:
+          type: integer
+          minimum: 1
+          maximum: 10
+        temperature:
+          type: number
