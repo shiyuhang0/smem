@@ -39,18 +39,33 @@ func NewOpenAIProvider(cfg Config) *OpenAIProvider {
 }
 
 func (p *OpenAIProvider) GenerateText(ctx context.Context, messages []Message) (string, error) {
-	body, err := json.Marshal(map[string]any{"model": p.model, "messages": messages})
+	body, err := p.marshalChatRequest(messages)
 	if err != nil {
 		return "", err
 	}
-	var result string
-	err = p.retry.Do(ctx, func(ctx context.Context) error {
+
+	payload, err := p.doChatCompletion(ctx, body)
+	if err != nil {
+		return "", err
+	}
+
+	return decodeChatCompletion(payload)
+}
+
+func (p *OpenAIProvider) marshalChatRequest(messages []Message) ([]byte, error) {
+	return json.Marshal(map[string]any{"model": p.model, "messages": messages})
+}
+
+func (p *OpenAIProvider) doChatCompletion(ctx context.Context, body []byte) (chatCompletionResponse, error) {
+	var payload chatCompletionResponse
+	err := p.retry.Do(ctx, func(ctx context.Context) error {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/chat/completions", bytes.NewReader(body))
 		if err != nil {
 			return err
 		}
 		req.Header.Set("Authorization", "Bearer "+p.apiKey)
 		req.Header.Set("Content-Type", "application/json")
+
 		resp, err := p.httpClient.Do(req)
 		if err != nil {
 			return err
@@ -59,24 +74,26 @@ func (p *OpenAIProvider) GenerateText(ctx context.Context, messages []Message) (
 		if resp.StatusCode >= 400 {
 			return retry.HTTPStatusError{StatusCode: resp.StatusCode}
 		}
-		var payload struct {
-			Choices []struct {
-				Message struct {
-					Content string `json:"content"`
-				} `json:"message"`
-			} `json:"choices"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-			return err
-		}
-		if len(payload.Choices) == 0 {
-			return fmt.Errorf("openai response has no choices")
-		}
-		result = payload.Choices[0].Message.Content
-		return nil
+
+		return json.NewDecoder(resp.Body).Decode(&payload)
 	})
 	if err != nil {
-		return "", err
+		return chatCompletionResponse{}, err
 	}
-	return result, nil
+	return payload, nil
+}
+
+type chatCompletionResponse struct {
+	Choices []struct {
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+	} `json:"choices"`
+}
+
+func decodeChatCompletion(payload chatCompletionResponse) (string, error) {
+	if len(payload.Choices) == 0 {
+		return "", fmt.Errorf("openai response has no choices")
+	}
+	return payload.Choices[0].Message.Content, nil
 }

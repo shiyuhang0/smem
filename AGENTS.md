@@ -108,6 +108,13 @@ Follow the existing layering. Do not put HTTP concerns into domain packages.
 - Keep logic close to where it is used unless reuse is clear.
 - Match existing naming and package boundaries before introducing new abstractions.
 
+### Recall-Style Flows
+- For service and workflow entrypoints, prefer the style demonstrated by `apps/server/internal/workflow/recall/service.go` in `Recall`.
+- Keep top-level logic easy to read: normalize input first, keep the main path linear, and avoid burying the flow in dense branches.
+- Add comments only at important decision points, trade-offs, or future extension points.
+- Keep key stages observable with concise logs so the recall/ingest/search path can be diagnosed from runtime output.
+- Extract meaningful helper methods so the top-level method stays clear and stage-oriented.
+
 ### Formatting
 - Always use `gofmt`.
 - Use tabs as Go tooling expects.

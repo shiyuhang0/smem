@@ -39,18 +39,33 @@ func NewOpenAIProvider(cfg Config) *OpenAIProvider {
 }
 
 func (p *OpenAIProvider) Embed(ctx context.Context, input string) ([]float32, error) {
-	body, err := json.Marshal(map[string]any{"model": p.model, "input": input})
+	body, err := p.marshalEmbeddingRequest(input)
 	if err != nil {
 		return nil, err
 	}
-	var vector []float32
-	err = p.retry.Do(ctx, func(ctx context.Context) error {
+
+	payload, err := p.doEmbeddingRequest(ctx, body)
+	if err != nil {
+		return nil, err
+	}
+
+	return decodeOpenAIEmbedding(payload)
+}
+
+func (p *OpenAIProvider) marshalEmbeddingRequest(input string) ([]byte, error) {
+	return json.Marshal(map[string]any{"model": p.model, "input": input})
+}
+
+func (p *OpenAIProvider) doEmbeddingRequest(ctx context.Context, body []byte) (openAIEmbeddingResponse, error) {
+	var payload openAIEmbeddingResponse
+	err := p.retry.Do(ctx, func(ctx context.Context) error {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/embeddings", bytes.NewReader(body))
 		if err != nil {
 			return err
 		}
 		req.Header.Set("Authorization", "Bearer "+p.apiKey)
 		req.Header.Set("Content-Type", "application/json")
+
 		resp, err := p.httpClient.Do(req)
 		if err != nil {
 			return err
@@ -59,22 +74,24 @@ func (p *OpenAIProvider) Embed(ctx context.Context, input string) ([]float32, er
 		if resp.StatusCode >= 400 {
 			return retry.HTTPStatusError{StatusCode: resp.StatusCode}
 		}
-		var payload struct {
-			Data []struct {
-				Embedding []float32 `json:"embedding"`
-			} `json:"data"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-			return err
-		}
-		if len(payload.Data) == 0 {
-			return fmt.Errorf("embedding response has no data")
-		}
-		vector = payload.Data[0].Embedding
-		return nil
+
+		return json.NewDecoder(resp.Body).Decode(&payload)
 	})
 	if err != nil {
-		return nil, err
+		return openAIEmbeddingResponse{}, err
 	}
-	return vector, nil
+	return payload, nil
+}
+
+type openAIEmbeddingResponse struct {
+	Data []struct {
+		Embedding []float32 `json:"embedding"`
+	} `json:"data"`
+}
+
+func decodeOpenAIEmbedding(payload openAIEmbeddingResponse) ([]float32, error) {
+	if len(payload.Data) == 0 {
+		return nil, fmt.Errorf("embedding response has no data")
+	}
+	return payload.Data[0].Embedding, nil
 }

@@ -6,6 +6,17 @@ import (
 	"smem/apps/server/internal/domain/memory"
 )
 
+const (
+	relevanceThreshold = 0.2
+	vectorWeight       = 0.6
+	fulltextWeight     = 0.4
+
+	recencyWeight = 0.7
+	storeWeight   = 0.3
+
+	boostWeight = 0.1
+)
+
 type ScoreInput struct {
 	Candidate        memory.RecallCandidate
 	Now              time.Time
@@ -19,13 +30,14 @@ func Score(input ScoreInput) float64 {
 	recency := recencyScore(input.Candidate.Memory.UpdatedAt, input.Now)
 	store := storeCountScore(input.Candidate.Memory.StoreCount, input.MaxStoreCount)
 
-	relevance := 0.6*vector + 0.4*fulltext
-	if relevance < 0.2 {
+	// use relevance as the main score
+	relevance := vectorWeight*vector + fulltextWeight*fulltext
+	if relevance < relevanceThreshold {
 		return relevance
 	}
 
-	boost := 0.7*recency + 0.3*store
-	return relevance + 0.1*boost
+	boost := recencyWeight*recency + storeWeight*store
+	return relevance + boostWeight*boost
 }
 
 func vectorSimilarity(distance *float64) float64 {

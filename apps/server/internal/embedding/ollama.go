@@ -31,12 +31,26 @@ func NewOllamaProvider(cfg Config) *OllamaProvider {
 }
 
 func (p *OllamaProvider) Embed(ctx context.Context, input string) ([]float32, error) {
-	body, err := json.Marshal(map[string]any{"model": p.model, "input": input})
+	body, err := p.marshalEmbeddingRequest(input)
 	if err != nil {
 		return nil, err
 	}
-	var vector []float32
-	err = p.retry.Do(ctx, func(ctx context.Context) error {
+
+	payload, err := p.doEmbeddingRequest(ctx, body)
+	if err != nil {
+		return nil, err
+	}
+
+	return decodeOllamaEmbedding(payload)
+}
+
+func (p *OllamaProvider) marshalEmbeddingRequest(input string) ([]byte, error) {
+	return json.Marshal(map[string]any{"model": p.model, "input": input})
+}
+
+func (p *OllamaProvider) doEmbeddingRequest(ctx context.Context, body []byte) (ollamaEmbeddingResponse, error) {
+	var payload ollamaEmbeddingResponse
+	err := p.retry.Do(ctx, func(ctx context.Context) error {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/api/embed", bytes.NewReader(body))
 		if err != nil {
 			return err
@@ -45,6 +59,7 @@ func (p *OllamaProvider) Embed(ctx context.Context, input string) ([]float32, er
 		if p.apiKey != "" {
 			req.Header.Set("Authorization", "Bearer "+p.apiKey)
 		}
+
 		resp, err := p.httpClient.Do(req)
 		if err != nil {
 			return err
@@ -53,27 +68,29 @@ func (p *OllamaProvider) Embed(ctx context.Context, input string) ([]float32, er
 		if resp.StatusCode >= 400 {
 			return retry.HTTPStatusError{StatusCode: resp.StatusCode}
 		}
-		var payload struct {
-			Embedding  []float64   `json:"embedding"`
-			Embeddings [][]float64 `json:"embeddings"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-			return err
-		}
-		switch {
-		case len(payload.Embeddings) > 0:
-			vector = float64ToFloat32(payload.Embeddings[0])
-		case len(payload.Embedding) > 0:
-			vector = float64ToFloat32(payload.Embedding)
-		default:
-			return fmt.Errorf("embedding response has no data")
-		}
-		return nil
+
+		return json.NewDecoder(resp.Body).Decode(&payload)
 	})
 	if err != nil {
-		return nil, err
+		return ollamaEmbeddingResponse{}, err
 	}
-	return vector, nil
+	return payload, nil
+}
+
+type ollamaEmbeddingResponse struct {
+	Embedding  []float64   `json:"embedding"`
+	Embeddings [][]float64 `json:"embeddings"`
+}
+
+func decodeOllamaEmbedding(payload ollamaEmbeddingResponse) ([]float32, error) {
+	switch {
+	case len(payload.Embeddings) > 0:
+		return float64ToFloat32(payload.Embeddings[0]), nil
+	case len(payload.Embedding) > 0:
+		return float64ToFloat32(payload.Embedding), nil
+	default:
+		return nil, fmt.Errorf("embedding response has no data")
+	}
 }
 
 func float64ToFloat32(values []float64) []float32 {

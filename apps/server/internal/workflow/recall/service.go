@@ -38,51 +38,77 @@ func NewService(repo memory.Repository, embedder embedding.Provider, llmProvider
 }
 
 func (s *Service) Recall(ctx context.Context, input memory.RecallInput) ([]memory.RecallResult, error) {
-	if input.TopK == 0 {
-		input.TopK = 2
-	}
-	if input.Temperature == 0 {
-		input.Temperature = 1
-	}
+	input = normalizeRecallInput(input)
 
-	// will add new content/type/kinds for rewrite in the future
-	rewritten := rewriteResult{Content: input.Content}
-	rewritten.Content = input.Content
-
-	query := rewritten.Content
-	vectorCandidates, err := s.searchVectorCandidates(ctx, query, input.TopK)
+	query := rewriteRecallQuery(input)
+	candidates, err := s.loadRecallCandidates(ctx, query, input.TopK)
 	if err != nil {
 		return nil, err
 	}
-	recallLogger.Printf("vector_search_results=%v", summarizeRecallCandidates(vectorCandidates))
-	fullTextCandidates, err := s.searchFullTextCandidates(ctx, query, input.TopK)
-	if err != nil {
-		return nil, err
-	}
-	recallLogger.Printf("full_search_results=%v", summarizeRecallCandidates(fullTextCandidates))
-	rrfCandidates := s.rrfCandidates(vectorCandidates, fullTextCandidates, input.TopK)
-	recallLogger.Printf("rrf_candidates=%v", summarizeRecallCandidates(rrfCandidates))
-	results := s.rerankCandidates(rrfCandidates, "hybrid_recall", time.Now().UTC())
+
+	results := s.rerankRecallResults(candidates, time.Now().UTC())
 	if len(results) == 0 {
 		return nil, nil
 	}
-	recallLogger.Printf("final_scores=%v", summarizeRecallResults(results))
 
-	// enable softmax may cause unrelated candidates to be recalled
-	// it is interesting but need to use it carefully
-	if enabelSoftmax {
-		results = s.applySoftmaxScores(results, input.Temperature)
-		recallLogger.Printf("final_probabilities=%v", summarizeRecallResults(results))
-		return s.selectTopKByProbability(results, input.TopK), nil
-	} else {
-		return results[:input.TopK], nil
-	}
+	return s.finalizeRecallResults(results, input), nil
 }
 
 type rewriteResult struct {
 	Content string   `json:"content"`
 	Type    string   `json:"type"`
 	Kinds   []string `json:"kinds"`
+}
+
+func normalizeRecallInput(input memory.RecallInput) memory.RecallInput {
+	if input.TopK == 0 {
+		input.TopK = 2
+	}
+	if input.Temperature == 0 {
+		input.Temperature = 1
+	}
+	return input
+}
+
+func rewriteRecallQuery(input memory.RecallInput) string {
+	// Keep the placeholder rewrite stage explicit so content/type/kinds can be added later.
+	rewritten := rewriteResult{Content: input.Content}
+	return rewritten.Content
+}
+
+func (s *Service) loadRecallCandidates(ctx context.Context, query string, topK int) ([]memory.RecallCandidate, error) {
+	vectorCandidates, err := s.searchVectorCandidates(ctx, query, topK)
+	if err != nil {
+		return nil, err
+	}
+	recallLogger.Printf("vector_search_results=%v", summarizeRecallCandidates(vectorCandidates))
+
+	fullTextCandidates, err := s.searchFullTextCandidates(ctx, query, topK)
+	if err != nil {
+		return nil, err
+	}
+	recallLogger.Printf("full_search_results=%v", summarizeRecallCandidates(fullTextCandidates))
+
+	rrfCandidates := s.rrfCandidates(vectorCandidates, fullTextCandidates, topK)
+	recallLogger.Printf("rrf_candidates=%v", summarizeRecallCandidates(rrfCandidates))
+	return rrfCandidates, nil
+}
+
+func (s *Service) rerankRecallResults(candidates []memory.RecallCandidate, now time.Time) []memory.RecallResult {
+	results := s.rerankCandidates(candidates, "hybrid_recall", now)
+	recallLogger.Printf("final_scores=%v", summarizeRecallResults(results))
+	return results
+}
+
+func (s *Service) finalizeRecallResults(results []memory.RecallResult, input memory.RecallInput) []memory.RecallResult {
+	// Softmax can surface weakly related candidates, so keep it behind the explicit flag.
+	if enabelSoftmax {
+		results = s.applySoftmaxScores(results, input.Temperature)
+		recallLogger.Printf("final_probabilities=%v", summarizeRecallResults(results))
+		return s.selectTopKByProbability(results, input.TopK)
+	}
+
+	return results[:input.TopK]
 }
 
 func (s *Service) searchVectorCandidates(ctx context.Context, query string, topK int) ([]memory.RecallCandidate, error) {
