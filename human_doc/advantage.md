@@ -1,6 +1,5 @@
 # Advantage of SMEM
 
-
 ## 架构
 
 服务端和 plugin 解耦
@@ -14,11 +13,14 @@ hybrid recall：
 - vector search + fulltext search 作为 relevance
 - 当 relevance 过阈值（0.2），再加 0.1*boost (更新时间，存储次数，类型等)
 
-好处：类似的记忆，多维度去召回
+多维度召回
 - 更新的：新记忆优先召回
 - 记得更多的会被优先召回。比如：我爱吃饭，我爱吃面（多次记忆），当问最爱吃什么，爱吃面优先召回
 - 类型，和问题匹配的类型优先召回
 - 其他：
+
+快速
+- recall 完全不依赖 LLM，确认性强。
 
 ## Ingest
 

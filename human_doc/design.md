@@ -1,26 +1,24 @@
-# Design
-
-## Overview
+# Overview
 
 `smem` 的目标是实现一个用于 Agent 的记忆系统。
 
-## Goals
+# Goals
 
 1. 可用 demo：可用，但质量要高于 demo。实现 openclaw plugin + TiDB Cloud 存储。
 2. 个人控制：仅用于个人搭建，不做服务。用户对数据完全控制，用户提供必要执行环境，如数据库、LLM、Agent 运行环境等。
 3. 创新：本项目用于个人学习，需要对比市面常见记忆系统，需要有一定创新点/难点。
 
-## Non-goals
+# Non-goals
 
 - 服务化：包括权限、服务端全托管等。
 - 其他 agent 插件、其他存储。
 
-## Constraints
+# Constraints
 
 - 服务端本地运行: 用户需自行提供 LLM API key 和数据库连接信息。服务端使用 Go 实现。
 - 客户端: openclaw 设计 memory plugin，使用 TypeScript 实现。
 
-## Glossary
+# Glossary
 
 - memory：系统中的记忆单元。
 - plugin：openclaw 的 memory plugin，负责自动记忆存储和召回。
@@ -35,22 +33,22 @@
 - fusion：对多路召回结果进行融合。
 - rerank：对候选记忆进行精排。
 
-## Architecture
+# Architecture
 
 整体架构为客户端 + 服务端。
 
 - 服务端向外提供 memory 管理接口（HTTP API），数据存储在数据库中。还需提供一个 dashboard，用于展示记忆内容。
 - 客户端即 memory plugin，负责为 Agent 提供记忆存储和召回能力，并调用服务端接口。
 
-## Server Design
+# Server Design
 
 技术栈偏好: Go + Gin + GORM + TiDB + AI SDK
 
-### Purpose
+## Purpose
 
 提供 memory 的存储、管理、搜索与召回能力。
 
-### Capabilities
+## Capabilities
 
 - 向外提供 memory 的增删改查与搜索接口。
   - 创建接口：创建 memory，或在 smart mode 下智能决定 create / update。
@@ -61,7 +59,7 @@
   - 更新接口：更新 memory 内容或状态。
 - 内部 memory 存储在数据库中，需向量化。
 
-### API Preference
+## API Preference
 
 以下为接口偏好示例：
 
@@ -113,7 +111,7 @@ GET /api/v1/memories?search=xxx
 
 状态规则：`creating` 不参与搜索、召回和默认列表查询；`active` 可被搜索、召回和正常使用；`archived` 不参与搜索和召回。
 
-### Database Design
+## Database Design
 
 memory 至少包含以下基础字段：`id`、`content`、`embedding`、`type`、`kinds`、`scope`、`state`、`created_at`、`updated_at`、`content_hash`、`version`。
 
@@ -150,7 +148,11 @@ CREATE TABLE memories (
 );
 ```
 
-## Storage Design
+## embedding
+
+支持多 provider，默认基于 `text-embedding-3-small` 模型，共 1536 维。
+
+## Ingest Design
 
 ### Purpose
 
@@ -160,20 +162,78 @@ CREATE TABLE memories (
 
 创建记忆（存储记忆）时，支持两种模式：
 
-1. normal mode：必须提供 `content`，可选提供 `type`、`scope`、`kinds`。直接 embedding 完存储。
-2. smart mode：必须提供 `content`，可选提供 `scope`。
-   1. 使用 prompt 基于 LLM 自动提取关键信息，生成一条或多条原子化的 `content` + `type` + `kinds` 组合，最多 10 条。
-   2. 召回相关记忆，使用 prompt 基于 LLM 进行记忆融合。对每条候选记忆只允许三种决策：`ignore`、`create`、`update`。
-   3. 若判定为 `update`，需要明确对应的已有 memory。若内容完全相同，则只更新 `updated_at` 与 `store_count`；若语义相同但新内容更完整，可更新 `content` 并递增 `version`。
-   4. 最终存储时，进行 embedding 存储。`content_hash` 用于精确去重；命中相同 `content_hash` 时，不创建新记录，而是更新对应记录的 `updated_at` 与 `store_count`。
+- normal mode：必须提供 `content`，可选提供 `type`、`scope`、`kind`，直接 embedding 完存储。
+- smart mode：必须提供 `content`，可选提供 `scope`。细节如下：
 
-关键点
+使用`信息提取` prompt 基于 LLM 自动提取关键信息。LLM 返回一条或多条原子化的 `content` + `type` + `kind` 组合，最多 5 条，对于每一条记忆：
+1. 召回相关记忆，直接调用 Recall 相关方法，召回 5 条记忆。
+2. 使用 `记忆融合` prompt 基于 LLM 进行 reconcile。LLM 返回每一条记忆的处理方式：
+   1. 对候选记忆只允许三种决策：`ignore`、`create`。
+      1. ignore: 无用信息忽略；已存在相关信息，更新老信息。
+      2. create: 创建新记忆。
+   2. 对老记忆只允许两种决策：`delete`、`update`。
+      1. delete: 删除老记忆，一般是记忆冲突。
+      2. update: 更新老记忆，更新需要更新的信息，包括  content，content_hash，store_count
+3. 最终存储时，进行 embedding 存储，`content_hash` 用于精确去重；创建 SQL 时，需要设计为`content_hash` 冲突则转而更新对应记录的 `store_count`。
 
-1. 异步存储：存储为 `creating` 状态即返回成功，直到完成 embedding 后更新为 `active` 状态。
-2. 智能模式下，我希望 LLM 自动提取关键信息时，尽量提取尽量小和原子的内容。
-3. 一条 durable memory 应尽量只表达一个事实、偏好、决策或流程要点，不应直接把整轮会话摘要作为单条 memory 存储。
-4. `POST /api/v1/memories` 用于 normal mode 或 smart mode 写入，smart mode 下服务端可决定 `create` 或 `update`；`PUT /api/v1/memories/{id}` 仅用于对指定 memory 的显式更新。
-5. 失败降级策略：当 LLM 提取失败时，smart mode 降级为 normal mode；当 embedding 失败时，memory 保持非 `active` 状态并等待重试。
+异步设计：
+
+异步的操作：设计 ingest 表，用于异步操作。API 插入 ingest 表即返回成功。
+1. ingest 表需要定义 content, type, scope, kind , state , created_at, updated_at，mode，execute_count 等信息。要求
+   1. 保存完整请求信息
+   2. 同时定义状态，表示该数据的处理进度，重启可继续执行
+2. 启动一个 worker 去轮询 ingest 表，进行上述 ingest 流程。
+3. 具备失败重试，最多 5 次。
+
+原则
+
+1. 智能模式下，希望 LLM 自动提取关键信息时，尽量提取尽量小和原子的内容。
+2. 一条 durable memory 应尽量只表达一个事实、偏好、决策或流程要点，不应直接把整轮会话摘要作为单条 memory 存储。
+3. `POST /api/v1/memories` 创建接口用于 normal mode 或 smart mode 写入。
+4. reconcile 时每条记忆的处理尽量使用事务，让一整次数据库操作在一个事务中。
+5. prompt 见下文：Prompt 设计
+
+## Prompt 设计
+
+用于 ingest 过程中与 LLM 的交互
+
+### 信息提取
+
+以下是参考
+
+mem0
+```
+```
+
+supermemory
+```
+```
+
+mem9
+```
+```
+
+clawmem
+```
+```
+
+### 记忆融合
+
+mem0
+```
+```
+
+supermemory
+```
+```
+
+mem9
+```
+```
+
+clawmem
+```
+```
 
 ## Recall Design
 
@@ -202,43 +262,27 @@ CREATE TABLE memories (
 
 ### Relevance-Gated Rerank
 
-#### Background
-
 `recency`、`store_count` 这类业务信号不能脱离检索相关性单独抬分，否则完全无关但较新、被多次存储的记忆也会获得较高分数，污染召回结果。
 
-#### Default Strategy
+> 相关性信号决定“能不能进场”，时间和存储次数只负责在相关候选之间做微调，不负责让弱相关或无关候选翻盘。
 
 1. 先基于 `distance` 和 `score` 计算 `relevance` 主分。
 2. 再引入 `recency`、`store_count` 作为 boost。
 3. 只有当 `relevance` 超过一个较低门槛后，业务信号才参与增强；当 `relevance` 很低时，直接返回 `relevance`，不再叠加 boost。
 
-#### Default Weights
 
-1. `relevance = 0.6 * vector_similarity + 0.4 * full_text_score`
-2. `vector_similarity` 由 `distance` 归一化得到，`full_text_score` 由当前候选集合中的最大 `score` 归一化得到。
-3. 通过门槛后，再计算 `boost = 0.7 * recency + 0.3 * store_count_score`
-4. 最终得分为 `relevance + 0.1 * boost`
+4. `relevance = 0.6 * vector_similarity + 0.4 * full_text_score`
+5. `vector_similarity` 由 `distance` 归一化得到，`full_text_score` 由当前候选集合中的最大 `score` 归一化得到。
+6. 通过门槛后，再计算 `boost = 0.7 * recency + 0.3 * store_count_score`
+7. 最终得分为 `relevance + 0.1 * boost`
 
-#### Design Goal
+# Client Plugin Design
 
-相关性信号决定“能不能进场”，时间和存储次数只负责在相关候选之间做微调，不负责让弱相关或无关候选翻盘。
-
-以下策略未来实现
-1.  对输入使用 prompt 基于 LLM 自动提取关键信息，生成 `content`、`type`、`kinds`。其中 `content` 用作 recall query rewrite，`type`、`kinds` 用于排序加权。
-
-
-### Key Decision
-
-1. embedding 默认基于 `text-embedding-3-small` 模型，共 1536 维。
-   
-
-## Client Plugin Design
-
-### Purpose
+## Purpose
 
 针对 openclaw 设计 memory plugin，提供自动记忆存储和召回能力。
 
-### Injection Points
+## Injection Points
 
 - `agent_end`
   - 每轮用户输入触发一次，不是每会话一次。
@@ -249,17 +293,17 @@ CREATE TABLE memories (
   - 默认模式：传入 prompt，请求服务端搜索，召回注入到 prompt 中。
   - `prebuild` 模式：除了第一轮对话，直接注入上一轮对话召回的记忆。该模式仅复用相邻轮次的结果；当用户输入主题明显变化时，应放弃复用并重新搜索。
 
-### Key Decision
+## Key Decision
 
 1. client 去重策略：注入到 prompt 时，用 `memory` 包括召回的记忆内容。然后再 `agent_end` 存储记忆时，去掉召回的 `memory`，防止重复存储。
 
-### Parameters
+## Parameters
 
 1. 服务端地址。
 2. `EnablePrebuild`：是否启用 `prebuild` 模式。
 3. `RecallNum`：召回记忆数量，默认 5 条。
 
-## Dashboard Design
+# Dashboard Design
 
 需要提供一个 dashboard，用于展示记忆内容。v1 至少包含以下能力：
 
@@ -269,7 +313,7 @@ CREATE TABLE memories (
 
 技术栈偏好：：Vite + React 19 + TypeScript + Tailwind CSS 4 + shadcn/ui + TanStack
 
-## Future
+# Future
 
 暂时不实现，未来实现。
 
