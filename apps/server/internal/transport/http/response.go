@@ -1,6 +1,9 @@
 package http
 
-import "smem/apps/server/internal/domain/memory"
+import (
+	"smem/apps/server/internal/domain/ingestjob"
+	"smem/apps/server/internal/domain/memory"
+)
 
 type memoryResponse struct {
 	ID             string         `json:"id"`
@@ -29,7 +32,13 @@ type listMemoriesResponse struct {
 	TotalPages int              `json:"total_pages"`
 }
 
-type acceptedResponse struct {
-	Accepted bool             `json:"accepted"`
-	Items    []memoryResponse `json:"items"`
+type ingestJobResponse struct {
+	ID           string          `json:"id"`
+	State        ingestjob.State `json:"state"`
+	Mode         ingestjob.Mode  `json:"mode"`
+	ExecuteCount int             `json:"execute_count"`
+	LastError    string          `json:"last_error,omitempty"`
+	NextRunAt    *string         `json:"next_run_at,omitempty"`
+	CreatedAt    string          `json:"created_at"`
+	UpdatedAt    string          `json:"updated_at"`
 }

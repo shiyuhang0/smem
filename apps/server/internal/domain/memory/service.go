@@ -14,20 +14,10 @@ var ErrNotFound = fmt.Errorf("memory not found")
 type Service struct {
 	repo Repository
 	now  func() time.Time
-	id   func() string
 }
 
-func NewService(repo Repository, id func() string) *Service {
-	return &Service{repo: repo, now: time.Now, id: id}
-}
-
-func (s *Service) Create(ctx context.Context, input CreateInput) (Memory, error) {
-	if err := input.Validate(); err != nil {
-		return Memory{}, err
-	}
-
-	item := s.buildMemory(input)
-	return s.createOrUpdateExisting(ctx, item)
+func NewService(repo Repository) *Service {
+	return &Service{repo: repo, now: time.Now}
 }
 
 func (s *Service) Get(ctx context.Context, id string) (Memory, error) {
@@ -54,39 +44,13 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 }
 
 func (s *Service) List(ctx context.Context, input ListInput) ([]Memory, int64, error) {
-	input = normalizeListInput(input)
+	if input.Page < 1 {
+		input.Page = 1
+	}
+	if input.PageSize < 1 || input.PageSize > 100 {
+		input.PageSize = 20
+	}
 	return s.repo.List(ctx, input)
-}
-
-func (s *Service) buildMemory(input CreateInput) Memory {
-	now := s.now().UTC()
-	return Memory{
-		ID:          s.id(),
-		Content:     strings.TrimSpace(input.Content),
-		ContentHash: HashContent(input.Content),
-		Type:        input.Type,
-		Kinds:       append([]string(nil), input.Kinds...),
-		Scope:       defaultScope(input.Scope),
-		State:       StateCreating,
-		Metadata:    input.Metadata,
-		AgentID:     input.AgentID,
-		SessionID:   input.SessionID,
-		Source:      input.Source,
-		Version:     1,
-		StoreCount:  1,
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	}
-}
-
-func (s *Service) createOrUpdateExisting(ctx context.Context, item Memory) (Memory, error) {
-	existing, err := s.repo.GetByContentHash(ctx, item.ContentHash)
-	if err == nil {
-		existing.StoreCount++
-		existing.UpdatedAt = item.UpdatedAt
-		return s.repo.Update(ctx, existing)
-	}
-	return s.repo.Create(ctx, item)
 }
 
 func (s *Service) applyUpdateInput(item Memory, input UpdateInput) (Memory, error) {
@@ -126,24 +90,7 @@ func (s *Service) applyUpdateInput(item Memory, input UpdateInput) (Memory, erro
 	return item, nil
 }
 
-func normalizeListInput(input ListInput) ListInput {
-	if input.Page < 1 {
-		input.Page = 1
-	}
-	if input.PageSize < 1 || input.PageSize > 100 {
-		input.PageSize = 20
-	}
-	return input
-}
-
 func HashContent(content string) string {
 	sum := sha256.Sum256([]byte(strings.TrimSpace(content)))
 	return hex.EncodeToString(sum[:])
-}
-
-func defaultScope(scope Scope) Scope {
-	if scope == "" {
-		return ScopeUser
-	}
-	return scope
 }

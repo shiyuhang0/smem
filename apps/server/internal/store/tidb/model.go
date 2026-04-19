@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"smem/apps/server/internal/domain/ingestjob"
 	"smem/apps/server/internal/domain/memory"
 )
 
@@ -182,5 +183,82 @@ func (m MemoryModel) toDomain() memory.Memory {
 		LastAccessedAt: m.LastAccessedAt,
 		CreatedAt:      m.CreatedAt,
 		UpdatedAt:      m.UpdatedAt,
+	}
+}
+
+type IngestJobModel struct {
+	ID              string      `gorm:"primaryKey;size:64"`
+	Content         string      `gorm:"type:text;not null"`
+	Type            string      `gorm:"size:32"`
+	Kinds           StringSlice `gorm:"type:json"`
+	Scope           string      `gorm:"size:32;index;not null"`
+	Mode            string      `gorm:"size:32;index;not null"`
+	State           string      `gorm:"size:32;index;not null"`
+	Metadata        JSONMap     `gorm:"type:json"`
+	AgentID         string      `gorm:"size:128;index"`
+	SessionID       string      `gorm:"size:128;index"`
+	Source          string      `gorm:"size:128"`
+	ExecuteCount    int         `gorm:"not null"`
+	NextRunAt       *time.Time
+	LockedAt        *time.Time
+	WorkerID        string      `gorm:"size:128;index"`
+	LastError       string      `gorm:"type:text"`
+	ResultMemoryIDs StringSlice `gorm:"type:json"`
+	ResultSummary   string      `gorm:"type:text"`
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+func (IngestJobModel) TableName() string {
+	return "ingest_jobs"
+}
+
+func ingestJobFromDomain(job ingestjob.Job) IngestJobModel {
+	return IngestJobModel{
+		ID:              job.ID,
+		Content:         job.Content,
+		Type:            string(job.Type),
+		Kinds:           StringSlice(job.Kinds),
+		Scope:           string(job.Scope),
+		Mode:            string(job.Mode),
+		State:           string(job.State),
+		Metadata:        JSONMap(job.Metadata),
+		AgentID:         job.AgentID,
+		SessionID:       job.SessionID,
+		Source:          job.Source,
+		ExecuteCount:    job.ExecuteCount,
+		NextRunAt:       job.NextRunAt,
+		LockedAt:        job.LockedAt,
+		WorkerID:        job.WorkerID,
+		LastError:       job.LastError,
+		ResultMemoryIDs: StringSlice(job.ResultMemoryIDs),
+		ResultSummary:   job.ResultSummary,
+		CreatedAt:       job.CreatedAt,
+		UpdatedAt:       job.UpdatedAt,
+	}
+}
+
+func (m IngestJobModel) toDomain() ingestjob.Job {
+	return ingestjob.Job{
+		ID:              m.ID,
+		Content:         m.Content,
+		Type:            memory.Type(m.Type),
+		Kinds:           []string(m.Kinds),
+		Scope:           memory.Scope(m.Scope),
+		Mode:            ingestjob.Mode(m.Mode),
+		State:           ingestjob.State(m.State),
+		Metadata:        map[string]any(m.Metadata),
+		AgentID:         m.AgentID,
+		SessionID:       m.SessionID,
+		Source:          m.Source,
+		ExecuteCount:    m.ExecuteCount,
+		NextRunAt:       m.NextRunAt,
+		LockedAt:        m.LockedAt,
+		WorkerID:        m.WorkerID,
+		LastError:       m.LastError,
+		ResultMemoryIDs: []string(m.ResultMemoryIDs),
+		ResultSummary:   m.ResultSummary,
+		CreatedAt:       m.CreatedAt,
+		UpdatedAt:       m.UpdatedAt,
 	}
 }

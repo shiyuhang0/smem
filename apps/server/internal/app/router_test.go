@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -19,4 +20,15 @@ func TestRouterHealthz(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, resp.Code)
 	require.JSONEq(t, `{"status":"ok"}`+"\n", resp.Body.String())
+}
+
+func TestAppShutdownCancelsWorker(t *testing.T) {
+	cancelled := false
+	application := &App{
+		workerCancel: func() { cancelled = true },
+	}
+
+	err := application.Shutdown(context.Background())
+	require.NoError(t, err)
+	require.True(t, cancelled)
 }

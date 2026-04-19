@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"smem/apps/server/internal/domain/memory"
 )
@@ -43,6 +44,23 @@ func NewRepository(db *gorm.DB) *Repository {
 func (r *Repository) Create(ctx context.Context, item memory.Memory) (memory.Memory, error) {
 	model := fromDomain(item)
 	if err := r.db.WithContext(ctx).Create(&model).Error; err != nil {
+		return memory.Memory{}, err
+	}
+	return model.toDomain(), nil
+}
+
+func (r *Repository) UpsertByContentHash(ctx context.Context, item memory.Memory) (memory.Memory, error) {
+	model := fromDomain(item)
+	err := r.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "content_hash"}},
+		DoUpdates: clause.Assignments(map[string]any{
+			"embedding":   model.Embedding,
+			"state":       model.State,
+			"updated_at":  model.UpdatedAt,
+			"store_count": gorm.Expr("store_count + ?", item.StoreCount),
+		}),
+	}).Create(&model).Error
+	if err != nil {
 		return memory.Memory{}, err
 	}
 	return model.toDomain(), nil
@@ -231,18 +249,6 @@ func toDomainMemories(models []MemoryModel) []memory.Memory {
 		out = append(out, model.toDomain())
 	}
 	return out
-}
-
-func scanMemoryRows(db *gorm.DB, rows *sql.Rows) ([]memory.Memory, error) {
-	out := make([]memory.Memory, 0)
-	for rows.Next() {
-		var model MemoryModel
-		if err := db.ScanRows(rows, &model); err != nil {
-			return nil, err
-		}
-		out = append(out, model.toDomain())
-	}
-	return out, rows.Err()
 }
 
 type recallCandidateRow struct {

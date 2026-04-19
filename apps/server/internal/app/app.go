@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -22,9 +23,10 @@ import (
 )
 
 type App struct {
-	Config config.Config
-	Server *http.Server
-	DB     *gorm.DB
+	Config       config.Config
+	Server       *http.Server
+	DB           *gorm.DB
+	workerCancel context.CancelFunc
 }
 
 func New(cfg config.Config) (*App, error) {
@@ -39,8 +41,10 @@ func New(cfg config.Config) (*App, error) {
 	if err := tidb.ApplyMigrations(context.Background(), db); err != nil {
 		return nil, err
 	}
-	repo := tidb.NewRepository(db)
-	memoryService := memory.NewService(repo, newID)
+	memoryRepo := tidb.NewRepository(db)
+	jobRepo := tidb.NewIngestJobRepository(db)
+	txManager := tidb.NewTransactionManager(db)
+	memoryService := memory.NewService(memoryRepo)
 	retryPolicy := retry.DefaultPolicy()
 	llmProvider := llm.NewOpenAIProvider(llm.Config{
 		BaseURL: cfg.OpenAIBaseURL, APIKey: cfg.OpenAIAPIKey, Model: cfg.OpenAIChatModel, Retry: retryPolicy,
@@ -49,19 +53,42 @@ func New(cfg config.Config) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	worker := ingest.NewEmbeddingWorker(repo, embeddingProvider, cfg.EmbeddingDim)
-	ingestService := ingest.NewService(memoryService, repo, worker, llmProvider)
-	recallService := recall.NewService(repo, embeddingProvider, llmProvider)
+	recallService := recall.NewService(memoryRepo, embeddingProvider, llmProvider)
+	ingestService := ingest.NewService(jobRepo, newIngestJobID)
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	jobWorker := ingest.NewJobWorker(jobRepo, txManager, recallService, llmProvider, embeddingProvider, newMemoryID, newWorkerID())
+	jobWorker.Start(workerCtx)
 	memoryHandler := httptransport.NewMemoryHandler(memoryService, ingestService, recallService)
 
 	return &App{
-		Config: cfg,
-		DB:     db,
+		Config:       cfg,
+		DB:           db,
+		workerCancel: workerCancel,
 		Server: &http.Server{
 			Addr:    cfg.ServerAddr,
 			Handler: NewRouter(cfg, memoryHandler),
 		},
 	}, nil
+}
+
+func (a *App) Shutdown(ctx context.Context) error {
+	if a.workerCancel != nil {
+		a.workerCancel()
+	}
+
+	var result error
+	if a.Server != nil {
+		result = errors.Join(result, a.Server.Shutdown(ctx))
+	}
+	if a.DB != nil {
+		sqlDB, err := a.DB.DB()
+		if err != nil {
+			result = errors.Join(result, err)
+		} else {
+			result = errors.Join(result, sqlDB.Close())
+		}
+	}
+	return result
 }
 
 func newEmbeddingProvider(cfg config.Config, retryPolicy retry.Policy) (embedding.Provider, error) {
@@ -78,10 +105,22 @@ func newEmbeddingProvider(cfg config.Config, retryPolicy retry.Policy) (embeddin
 	}
 }
 
-func newID() string {
+func newMemoryID() string {
+	return newPrefixedID("mem-")
+}
+
+func newIngestJobID() string {
+	return newPrefixedID("ing-")
+}
+
+func newWorkerID() string {
+	return newPrefixedID("worker-")
+}
+
+func newPrefixedID(prefix string) string {
 	buf := make([]byte, 8)
 	if _, err := rand.Read(buf); err != nil {
-		return "mem-fallback"
+		return prefix + "fallback"
 	}
-	return "mem-" + hex.EncodeToString(buf)
+	return prefix + hex.EncodeToString(buf)
 }

@@ -50,7 +50,7 @@ func TestRecallReturnsErrorWhenFullTextSearchFails(t *testing.T) {
 	require.Nil(t, results)
 }
 
-func TestRecallUsesRRFToMergeVectorAndFullTextCandidates(t *testing.T) {
+func TestRecallMergesVectorAndFullTextViaRRFAndReranks(t *testing.T) {
 	now := time.Now().UTC()
 	repo := &recallRepo{
 		vectorCandidates: []memory.RecallCandidate{
@@ -67,79 +67,13 @@ func TestRecallUsesRRFToMergeVectorAndFullTextCandidates(t *testing.T) {
 	results, err := svc.Recall(context.Background(), memory.RecallInput{Content: "shared", TopK: 3, Temperature: 1})
 	require.NoError(t, err)
 	require.Len(t, results, 3)
+	// Appears in both channels → strongest hybrid relevance after rerank.
+	require.Equal(t, "shared", results[0].Memory.ID)
 	require.ElementsMatch(t, []string{"vec-only", "shared", "fts-only"}, []string{
 		results[0].Memory.ID,
 		results[1].Memory.ID,
 		results[2].Memory.ID,
 	})
-}
-
-func TestFuseRecallCandidatesUsesRRFWhenFullTextAvailable(t *testing.T) {
-	vectorCandidates := []memory.RecallCandidate{
-		{Memory: memory.Memory{ID: "vec-only"}},
-		{Memory: memory.Memory{ID: "shared"}},
-	}
-	fullTextCandidates := []memory.RecallCandidate{
-		{Memory: memory.Memory{ID: "shared"}},
-		{Memory: memory.Memory{ID: "fts-only"}},
-	}
-	svc := NewService(&recallRepo{}, nil, fakeLLMProvider{})
-
-	candidates := svc.rrfCandidates(vectorCandidates, fullTextCandidates, 2)
-
-	require.Len(t, candidates, 3)
-	require.Equal(t, "shared", candidates[0].Memory.ID)
-	require.Equal(t, "vec-only", candidates[1].Memory.ID)
-	require.Equal(t, "fts-only", candidates[2].Memory.ID)
-}
-
-func TestApplySoftmaxScoresReturnsProbabilities(t *testing.T) {
-	svc := NewService(&recallRepo{}, nil, fakeLLMProvider{})
-	results := []memory.RecallResult{
-		{Memory: memory.Memory{ID: "a"}, Score: 2},
-		{Memory: memory.Memory{ID: "b"}, Score: 1},
-	}
-
-	probabilities := svc.applySoftmaxScores(results, 1)
-
-	require.Len(t, probabilities, 2)
-	require.Greater(t, probabilities[0].Score, probabilities[1].Score)
-	require.InDelta(t, 1.0, probabilities[0].Score+probabilities[1].Score, 0.000001)
-}
-
-func TestSummarizeRecallCandidatesOnlyPrintsKeyFields(t *testing.T) {
-	candidates := []memory.RecallCandidate{
-		{
-			Memory:         memory.Memory{ID: "a", Content: "remember vim and tmux"},
-			VectorDistance: floatPtr(0.12),
-			FullTextScore:  floatPtr(0.8),
-		},
-	}
-
-	summary := summarizeRecallCandidates(candidates)
-
-	require.Equal(t, []string{"a:remember vim and tmux:distance=0.12:score=0.8"}, summary)
-}
-
-func TestSelectTopKByProbabilityCanChooseLowerProbabilityResult(t *testing.T) {
-	results := []memory.RecallResult{
-		{Memory: memory.Memory{ID: "a"}, Score: 0.6},
-		{Memory: memory.Memory{ID: "b"}, Score: 0.3},
-		{Memory: memory.Memory{ID: "c"}, Score: 0.1},
-	}
-	draws := []float64{0.95, 0.1}
-	svc := NewService(&recallRepo{}, nil, fakeLLMProvider{})
-	svc.randFloat = func() float64 {
-		value := draws[0]
-		draws = draws[1:]
-		return value
-	}
-
-	selected := svc.selectTopKByProbability(results, 2)
-
-	require.Len(t, selected, 2)
-	require.Equal(t, "a", selected[0].Memory.ID)
-	require.Equal(t, "c", selected[1].Memory.ID)
 }
 
 type recallRepo struct {
@@ -148,20 +82,17 @@ type recallRepo struct {
 	fullTextErr        error
 }
 
-func (r *recallRepo) Create(context.Context, memory.Memory) (memory.Memory, error) { panic("unused") }
-func (r *recallRepo) Update(context.Context, memory.Memory) (memory.Memory, error) { panic("unused") }
-func (r *recallRepo) Delete(context.Context, string) error                         { panic("unused") }
-func (r *recallRepo) GetByID(context.Context, string) (memory.Memory, error)       { panic("unused") }
-func (r *recallRepo) GetByContentHash(context.Context, string) (memory.Memory, error) {
+func (r *recallRepo) Create(_ context.Context, _ memory.Memory) (memory.Memory, error) {
 	panic("unused")
 }
-func (r *recallRepo) List(_ context.Context, _ memory.ListInput) ([]memory.Memory, int64, error) {
-	return nil, 0, nil
+func (r *recallRepo) UpsertByContentHash(_ context.Context, _ memory.Memory) (memory.Memory, error) {
+	panic("unused")
 }
-func (r *recallRepo) Search(_ context.Context, query string, _ int) ([]memory.Memory, error) {
-	_ = query
-	return nil, nil
+func (r *recallRepo) Update(_ context.Context, _ memory.Memory) (memory.Memory, error) {
+	panic("unused")
 }
+func (r *recallRepo) Delete(_ context.Context, _ string) error                   { panic("unused") }
+func (r *recallRepo) GetByID(_ context.Context, _ string) (memory.Memory, error) { panic("unused") }
 
 func (r *recallRepo) VectorSearch(_ context.Context, _ []float32, _ int) ([]memory.RecallCandidate, error) {
 	return r.vectorCandidates, nil

@@ -10,6 +10,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	"smem/apps/server/internal/domain/ingestjob"
 	"smem/apps/server/internal/domain/memory"
 )
 
@@ -54,6 +55,50 @@ func TestRepositoryCRUDAndList(t *testing.T) {
 	require.NoError(t, repo.Delete(context.Background(), "m1"))
 	_, err = repo.GetByID(context.Background(), "m1")
 	require.ErrorIs(t, err, memory.ErrNotFound)
+}
+
+func TestRepositoryUpsertByContentHashIncrementsStoreCount(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&MemoryModel{}))
+
+	repo := NewRepository(db)
+	now := time.Unix(120, 0).UTC()
+	first := memory.Memory{
+		ID:          "m1",
+		Content:     "remember this",
+		ContentHash: memory.HashContent("remember this"),
+		Embedding:   []float32{0.1, 0.2},
+		State:       memory.StateActive,
+		Scope:       memory.ScopeUser,
+		Version:     1,
+		StoreCount:  1,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	second := memory.Memory{
+		ID:          "m2",
+		Content:     "remember this",
+		ContentHash: memory.HashContent("remember this"),
+		Embedding:   []float32{0.3, 0.4},
+		State:       memory.StateActive,
+		Scope:       memory.ScopeUser,
+		Version:     1,
+		StoreCount:  1,
+		CreatedAt:   now.Add(time.Second),
+		UpdatedAt:   now.Add(time.Second),
+	}
+
+	created, err := repo.UpsertByContentHash(context.Background(), first)
+	require.NoError(t, err)
+	require.Equal(t, "m1", created.ID)
+	require.Equal(t, 1, created.StoreCount)
+
+	upserted, err := repo.UpsertByContentHash(context.Background(), second)
+	require.NoError(t, err)
+	require.Equal(t, "m1", upserted.ID)
+	require.Equal(t, 2, upserted.StoreCount)
+	require.Equal(t, []float32{0.3, 0.4}, upserted.Embedding)
 }
 
 func TestScanRecallCandidateRowsPreservesDistanceAndFullTextScore(t *testing.T) {
@@ -117,4 +162,117 @@ func TestScanRecallCandidateRowsPreservesDistanceAndFullTextScore(t *testing.T) 
 func TestFullTextQueryLiteralEscapesSpecialCharacters(t *testing.T) {
 	require.Equal(t, "'bluetooth'", fullTextQueryLiteral("bluetooth"))
 	require.Equal(t, "'O''Reilly \\\\ guide'", fullTextQueryLiteral("O'Reilly \\ guide"))
+}
+
+func TestIngestJobRepositorySubmitClaimRetryAndSucceed(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&IngestJobModel{}))
+
+	repo := NewIngestJobRepository(db)
+	now := time.Unix(200, 0).UTC()
+	job := ingestjob.Job{
+		ID:           "job-1",
+		Content:      "remember this",
+		Mode:         ingestjob.ModeNormal,
+		Scope:        memory.ScopeUser,
+		State:        ingestjob.StatePending,
+		ExecuteCount: 0,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+
+	submitted, err := repo.Submit(context.Background(), job)
+	require.NoError(t, err)
+	require.Equal(t, ingestjob.StatePending, submitted.State)
+
+	claimed, err := repo.ClaimNext(context.Background(), "worker-1", now.Add(time.Second))
+	require.NoError(t, err)
+	require.Equal(t, "job-1", claimed.ID)
+	require.Equal(t, ingestjob.StateRunning, claimed.State)
+	require.Equal(t, 1, claimed.ExecuteCount)
+	require.Equal(t, "worker-1", claimed.WorkerID)
+	require.NotNil(t, claimed.LockedAt)
+
+	requeued, err := repo.MarkRetry(context.Background(), claimed, now.Add(2*time.Second), "embedding failed", now.Add(3*time.Second))
+	require.NoError(t, err)
+	require.Equal(t, ingestjob.StatePending, requeued.State)
+	require.Equal(t, "embedding failed", requeued.LastError)
+	require.NotNil(t, requeued.NextRunAt)
+	require.Nil(t, requeued.LockedAt)
+
+	claimedAgain, err := repo.ClaimNext(context.Background(), "worker-2", now.Add(4*time.Second))
+	require.NoError(t, err)
+	require.Equal(t, 2, claimedAgain.ExecuteCount)
+
+	succeeded, err := repo.MarkSucceeded(context.Background(), claimedAgain, []string{"mem-1", "mem-2"}, "created=1 updated=1", now.Add(5*time.Second))
+	require.NoError(t, err)
+	require.Equal(t, ingestjob.StateSucceeded, succeeded.State)
+	require.Equal(t, []string{"mem-1", "mem-2"}, succeeded.ResultMemoryIDs)
+	require.Equal(t, "created=1 updated=1", succeeded.ResultSummary)
+	require.Nil(t, succeeded.LockedAt)
+}
+
+func TestIngestJobRepositoryMarksTerminalFailureAfterFifthAttempt(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&IngestJobModel{}))
+
+	repo := NewIngestJobRepository(db)
+	now := time.Unix(400, 0).UTC()
+	job := ingestjob.Job{
+		ID:           "job-5",
+		Content:      "remember this",
+		Mode:         ingestjob.ModeSmart,
+		Scope:        memory.ScopeUser,
+		State:        ingestjob.StateRunning,
+		ExecuteCount: 5,
+		WorkerID:     "worker-1",
+		LockedAt:     ptrTime(now),
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+
+	_, err = repo.Submit(context.Background(), job)
+	require.NoError(t, err)
+
+	failed, err := repo.MarkFailed(context.Background(), job, "llm protocol error", now.Add(time.Second))
+	require.NoError(t, err)
+	require.Equal(t, ingestjob.StateFailed, failed.State)
+	require.Equal(t, "llm protocol error", failed.LastError)
+	require.Nil(t, failed.LockedAt)
+}
+
+func TestIngestJobRepositoryRejectsStaleTerminalUpdate(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&IngestJobModel{}))
+
+	repo := NewIngestJobRepository(db)
+	now := time.Unix(500, 0).UTC()
+	job := ingestjob.Job{
+		ID:        "job-stale",
+		Content:   "remember this",
+		Mode:      ingestjob.ModeNormal,
+		Scope:     memory.ScopeUser,
+		State:     ingestjob.StatePending,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	_, err = repo.Submit(context.Background(), job)
+	require.NoError(t, err)
+
+	claimed, err := repo.ClaimNext(context.Background(), "worker-1", now.Add(time.Second))
+	require.NoError(t, err)
+
+	_, err = repo.MarkSucceeded(context.Background(), claimed, []string{"mem-1"}, "created=1 updated=0", now.Add(2*time.Second))
+	require.NoError(t, err)
+
+	_, err = repo.MarkRetry(context.Background(), claimed, now.Add(3*time.Second), "should be stale", now.Add(4*time.Second))
+	require.ErrorIs(t, err, ingestjob.ErrConflict)
+}
+
+func ptrTime(value time.Time) *time.Time {
+	return &value
 }

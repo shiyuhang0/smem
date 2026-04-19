@@ -50,3 +50,8 @@
 - design: 重新设计 ingest。
 - research: 调研记忆提取与记忆融合 prompt。
 - prompt: 实现 ingest 与 reconcile 的 Prompt 设计。 system prompt + user prompt。
+
+### 2026-04-19
+
+- code: 基于 ingest design 与 prompt 重构 ingest 逻辑
+

@@ -21,7 +21,7 @@ paths:
                     example: ok
   /api/v1/memories:
     post:
-      summary: Create memories
+      summary: Submit ingest job
       requestBody:
         required: true
         content:
@@ -31,6 +31,10 @@ paths:
       responses:
         '202':
           description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngestJob'
     get:
       summary: List or search memories
       parameters:
@@ -169,3 +173,28 @@ components:
           maximum: 10
         temperature:
           type: number
+    IngestJob:
+      type: object
+      required: [id, state, mode, execute_count, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        state:
+          type: string
+          enum: [pending, running, succeeded, failed]
+        mode:
+          type: string
+          enum: [normal, smart]
+        execute_count:
+          type: integer
+        last_error:
+          type: string
+        next_run_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time

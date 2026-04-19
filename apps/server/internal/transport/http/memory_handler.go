@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"smem/apps/server/internal/domain/ingestjob"
 	"smem/apps/server/internal/domain/memory"
 )
 
@@ -18,7 +19,7 @@ type recallService interface {
 }
 
 type ingestService interface {
-	Create(context.Context, memory.CreateInput) ([]memory.Memory, error)
+	Create(context.Context, memory.CreateInput) (ingestjob.Job, error)
 }
 
 type MemoryHandler struct {
@@ -58,20 +59,15 @@ func (h *MemoryHandler) create(c *gin.Context) {
 		Source:    req.Source,
 	}
 	if h.ingest != nil {
-		items, err := h.ingest.Create(c.Request.Context(), input)
+		job, err := h.ingest.Create(c.Request.Context(), input)
 		if err != nil {
 			h.writeError(c, err)
 			return
 		}
-		c.JSON(stdhttp.StatusAccepted, acceptedResponse{Accepted: true, Items: toMemoryResponses(items)})
+		c.JSON(stdhttp.StatusAccepted, toIngestJobResponse(job))
 		return
 	}
-	item, err := h.memoryService.Create(c.Request.Context(), input)
-	if err != nil {
-		h.writeError(c, err)
-		return
-	}
-	c.JSON(stdhttp.StatusAccepted, acceptedResponse{Accepted: true, Items: []memoryResponse{toMemoryResponse(item)}})
+	c.JSON(stdhttp.StatusNotImplemented, ErrorResponse{Error: "ingest service is not configured"})
 }
 
 func (h *MemoryHandler) get(c *gin.Context) {
@@ -179,12 +175,27 @@ func (h *MemoryHandler) recallMemories(c *gin.Context) {
 
 func (h *MemoryHandler) writeError(c *gin.Context, err error) {
 	status := stdhttp.StatusInternalServerError
-	if errors.Is(err, memory.ErrNotFound) {
+	switch {
+	case errors.Is(err, memory.ErrNotFound), errors.Is(err, ingestjob.ErrNotFound):
 		status = stdhttp.StatusNotFound
-	} else {
+	case isClientError(err):
 		status = stdhttp.StatusBadRequest
 	}
 	c.JSON(status, ErrorResponse{Error: err.Error()})
+}
+
+func isClientError(err error) bool {
+	switch err.Error() {
+	case "content is required",
+		"mode must be normal or smart",
+		"type is invalid",
+		"scope is invalid",
+		"state is invalid",
+		"top_k must be between 1 and 10":
+		return true
+	default:
+		return false
+	}
 }
 
 func toMemoryResponses(items []memory.Memory) []memoryResponse {
@@ -218,5 +229,23 @@ func toMemoryResponse(item memory.Memory) memoryResponse {
 		LastAccessedAt: lastAccessedAt,
 		CreatedAt:      item.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt:      item.UpdatedAt.UTC().Format(time.RFC3339),
+	}
+}
+
+func toIngestJobResponse(job ingestjob.Job) ingestJobResponse {
+	var nextRunAt *string
+	if job.NextRunAt != nil {
+		formatted := job.NextRunAt.UTC().Format(time.RFC3339)
+		nextRunAt = &formatted
+	}
+	return ingestJobResponse{
+		ID:           job.ID,
+		State:        job.State,
+		Mode:         job.Mode,
+		ExecuteCount: job.ExecuteCount,
+		LastError:    job.LastError,
+		NextRunAt:    nextRunAt,
+		CreatedAt:    job.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:    job.UpdatedAt.UTC().Format(time.RFC3339),
 	}
 }

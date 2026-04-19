@@ -62,7 +62,7 @@ type rewriteResult struct {
 
 func normalizeRecallInput(input memory.RecallInput) memory.RecallInput {
 	if input.TopK == 0 {
-		input.TopK = 2
+		input.TopK = 5
 	}
 	if input.Temperature == 0 {
 		input.Temperature = 1
