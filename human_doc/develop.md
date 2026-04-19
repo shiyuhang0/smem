@@ -44,8 +44,9 @@
 
 - refactor: 基于 recall 代码风格优化全部代码。
 
-### 2026-04-18 17:00
+### 2026-04-18
 
-design: 重新设计 ingest。
-
-### 
+- doc: 整理 doc for huamnd
+- design: 重新设计 ingest。
+- research: 调研记忆提取与记忆融合 prompt。
+- prompt: 实现 ingest 与 reconcile 的 Prompt 设计。 system prompt + user prompt。

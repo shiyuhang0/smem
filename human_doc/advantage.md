@@ -24,14 +24,21 @@ hybrid recall：
 
 ## Ingest
 
+两种召回模式
 - smart ingest：智能召回
 - normal ingest: 直接向量化后存储
 
+异步
+
+记忆融合：具体记忆加深的机制
+
 smart ingest 设计关键点（prompt 工程）
 1. 异步
-2. 自动提取关键信息：
+2. 自动提取关键信息
 3. 记忆融合：定义  ignore | create | update | conflict。不同类型的数据还可以有不同的融合策略。
 4. 其他：去重 content hash 
+
+
 
 ## plugin
 
