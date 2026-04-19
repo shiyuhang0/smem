@@ -8,9 +8,9 @@
 2. 环境变量
 3. 代码默认值
 
-默认会尝试读取 `apps/server` 工作目录下的 `config.yaml`。也可以通过 `SMEM_CONFIG_FILE` 显式指定配置文件路径。
+默认会尝试读取 `server/` 工作目录下的 `config.yaml`。也可以通过 `SMEM_CONFIG_FILE` 显式指定配置文件路径。
 
-模板文件位于 `apps/server/config.yaml.example`。
+模板文件位于 `server/config.yaml.example`。
 
 ## Required
 
@@ -21,7 +21,7 @@
 ## TiDB Requirements
 
 - recall 依赖 TiDB 原生 `VECTOR` 和 `FULLTEXT` 检索能力
-- 服务启动时会按文件名顺序执行 `apps/server/migrations/*.sql`
+- 服务启动时会按文件名顺序执行 `server/migrations/*.sql`
 - TiDB Cloud 的能力和区域限制请参考 [向量搜索文档](https://docs.pingcap.com/zh/ai/vector-search/) 和 [全文搜索 SQL 文档](https://docs.pingcap.com/zh/ai/vector-search-full-text-search-sql/)
 
 ## Configuration File Keys

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Refactor `apps/server` so the main Go workflows read like `Recall`: linear top-level flows, clear helper extraction, focused comments, and stable stage-level observability, without changing behavior.
+**Goal:** Refactor `server/` so the main Go workflows read like `Recall`: linear top-level flows, clear helper extraction, focused comments, and stable stage-level observability, without changing behavior.
 
 **Architecture:** Keep the current package boundaries intact and treat this as a behavior-preserving refactor. Start from `workflow` entrypoints, then align `domain`, `store`, and provider code to the same orchestration shape, only touching support packages when they materially improve the readability of the higher-level flows.
 
@@ -14,39 +14,39 @@
 
 ### Files To Modify
 
-- `apps/server/internal/workflow/recall/service.go`: keep `Recall` as the style source, but make helper boundaries and summaries support the same top-level readability.
-- `apps/server/internal/workflow/recall/service_test.go`: lock behavior around defaults and ranking flow before refactoring.
-- `apps/server/internal/workflow/ingest/service.go`: restructure normal create, smart create, and fusion decisions into stage-based orchestration with logs.
-- `apps/server/internal/workflow/ingest/ingest_test.go`: lock smart-create fallback and decision behavior during refactor.
-- `apps/server/internal/domain/memory/service.go`: split create/update/list into normalize, build, persist stages.
-- `apps/server/internal/domain/memory/service_test.go`: lock list normalization and create dedup behavior.
-- `apps/server/internal/store/tidb/repository.go`: keep CRUD entrypoints thin and move repeated query/scan details behind helpers.
-- `apps/server/internal/store/tidb/repository_test.go`: lock search/list/query helper behavior.
-- `apps/server/internal/llm/openai.go`: make request building, retry execution, and response decoding explicit stages.
-- `apps/server/internal/llm/openai_test.go`: lock empty-choice handling while preserving retry behavior.
-- `apps/server/internal/embedding/openai.go`: same staged refactor for OpenAI embeddings.
-- `apps/server/internal/embedding/ollama.go`: same staged refactor for Ollama embeddings.
-- `apps/server/internal/embedding/openai_test.go`: lock empty-data handling for OpenAI embedding responses.
+- `server/internal/workflow/recall/service.go`: keep `Recall` as the style source, but make helper boundaries and summaries support the same top-level readability.
+- `server/internal/workflow/recall/service_test.go`: lock behavior around defaults and ranking flow before refactoring.
+- `server/internal/workflow/ingest/service.go`: restructure normal create, smart create, and fusion decisions into stage-based orchestration with logs.
+- `server/internal/workflow/ingest/ingest_test.go`: lock smart-create fallback and decision behavior during refactor.
+- `server/internal/domain/memory/service.go`: split create/update/list into normalize, build, persist stages.
+- `server/internal/domain/memory/service_test.go`: lock list normalization and create dedup behavior.
+- `server/internal/tidb/repository.go`: keep CRUD entrypoints thin and move repeated query/scan details behind helpers.
+- `server/internal/tidb/repository_test.go`: lock search/list/query helper behavior.
+- `server/internal/llm/openai.go`: make request building, retry execution, and response decoding explicit stages.
+- `server/internal/llm/openai_test.go`: lock empty-choice handling while preserving retry behavior.
+- `server/internal/embedding/openai.go`: same staged refactor for OpenAI embeddings.
+- `server/internal/embedding/ollama.go`: same staged refactor for Ollama embeddings.
+- `server/internal/embedding/openai_test.go`: lock empty-data handling for OpenAI embedding responses.
 
 ### Files To Create
 
-- `apps/server/internal/embedding/ollama_test.go`: lock `embeddings` vs `embedding` response handling before the Ollama provider refactor.
-- `apps/server/internal/store/tidb/queries.go`: hold reusable query normalization and SQL/query-builder helpers if `repository.go` becomes hard to scan.
-- `apps/server/internal/store/tidb/scan.go`: hold row-scan helpers if moving them out makes CRUD/search methods shorter and clearer.
+- `server/internal/embedding/ollama_test.go`: lock `embeddings` vs `embedding` response handling before the Ollama provider refactor.
+- `server/internal/tidb/queries.go`: hold reusable query normalization and SQL/query-builder helpers if `repository.go` becomes hard to scan.
+- `server/internal/tidb/scan.go`: hold row-scan helpers if moving them out makes CRUD/search methods shorter and clearer.
 
 Only create `queries.go` and `scan.go` if the refactor actually moves concrete logic there during implementation. If `repository.go` stays readable after helper extraction, keep the helpers in `repository.go` and do not create the files.
 
 ### Files Likely Unchanged
 
-- `apps/server/internal/search/*`: keep as-is unless a tiny rename or comment is needed to support readability in callers.
-- `apps/server/internal/retry/*`: preserve semantics; only touch if provider refactors reveal a small clarity improvement.
-- `apps/server/internal/transport/http/*`: leave untouched unless a service signature cleanup forces a trivial callsite adjustment.
+- `server/internal/search/*`: keep as-is unless a tiny rename or comment is needed to support readability in callers.
+- `server/internal/retry/*`: preserve semantics; only touch if provider refactors reveal a small clarity improvement.
+- `server/internal/http/*`: leave untouched unless a service signature cleanup forces a trivial callsite adjustment.
 
 ## Task 1: Refactor Recall Flow Without Changing Ranking Behavior
 
 **Files:**
-- Modify: `apps/server/internal/workflow/recall/service.go`
-- Test: `apps/server/internal/workflow/recall/service_test.go`
+- Modify: `server/internal/workflow/recall/service.go`
+- Test: `server/internal/workflow/recall/service_test.go`
 
 - [ ] **Step 1: Add a behavior-lock test for Recall defaults**
 
@@ -136,15 +136,15 @@ Expected: PASS for all recall tests, including the new default-value test.
 - [ ] **Step 6: Commit the recall refactor**
 
 ```bash
-git add apps/server/internal/workflow/recall/service.go apps/server/internal/workflow/recall/service_test.go
+git add server/internal/workflow/recall/service.go server/internal/workflow/recall/service_test.go
 git commit -m "refactor: streamline recall workflow"
 ```
 
 ## Task 2: Make Ingest Read Like A Stage Pipeline
 
 **Files:**
-- Modify: `apps/server/internal/workflow/ingest/service.go`
-- Test: `apps/server/internal/workflow/ingest/ingest_test.go`
+- Modify: `server/internal/workflow/ingest/service.go`
+- Test: `server/internal/workflow/ingest/ingest_test.go`
 
 - [ ] **Step 1: Add a behavior-lock test for incomplete update decisions**
 
@@ -237,15 +237,15 @@ Expected: PASS for normal create, smart fallback, update decision, ignore decisi
 - [ ] **Step 6: Commit the ingest refactor**
 
 ```bash
-git add apps/server/internal/workflow/ingest/service.go apps/server/internal/workflow/ingest/ingest_test.go
+git add server/internal/workflow/ingest/service.go server/internal/workflow/ingest/ingest_test.go
 git commit -m "refactor: clarify ingest workflow stages"
 ```
 
 ## Task 3: Align Memory Service Methods To The Same Orchestration Style
 
 **Files:**
-- Modify: `apps/server/internal/domain/memory/service.go`
-- Test: `apps/server/internal/domain/memory/service_test.go`
+- Modify: `server/internal/domain/memory/service.go`
+- Test: `server/internal/domain/memory/service_test.go`
 
 - [ ] **Step 1: Add a behavior-lock test for list normalization**
 
@@ -311,17 +311,17 @@ Expected: PASS for create dedup, validation, and the new list-normalization test
 - [ ] **Step 6: Commit the memory service refactor**
 
 ```bash
-git add apps/server/internal/domain/memory/service.go apps/server/internal/domain/memory/service_test.go
+git add server/internal/domain/memory/service.go server/internal/domain/memory/service_test.go
 git commit -m "refactor: simplify memory service flows"
 ```
 
 ## Task 4: Thin Out TiDB Repository Entrypoints
 
 **Files:**
-- Modify: `apps/server/internal/store/tidb/repository.go`
-- Modify or Create: `apps/server/internal/store/tidb/queries.go`
-- Modify or Create: `apps/server/internal/store/tidb/scan.go`
-- Test: `apps/server/internal/store/tidb/repository_test.go`
+- Modify: `server/internal/tidb/repository.go`
+- Modify or Create: `server/internal/tidb/queries.go`
+- Modify or Create: `server/internal/tidb/scan.go`
+- Test: `server/internal/tidb/repository_test.go`
 
 - [ ] **Step 1: Add a behavior-lock test for search normalization**
 
@@ -369,7 +369,7 @@ func TestSearchUsesDefaultLimitAndOnlyReturnsActiveRows(t *testing.T) {
 
 - [ ] **Step 2: Run the targeted repository tests**
 
-Run: `go test ./internal/store/tidb -run 'TestSearchUsesDefaultLimitAndOnlyReturnsActiveRows|TestRepositoryCRUDAndList|TestScanRecallCandidateRowsPreservesDistanceAndFullTextScore|TestFullTextQueryLiteralEscapesSpecialCharacters' -count=1 -v`
+Run: `go test ./internal/tidb -run 'TestSearchUsesDefaultLimitAndOnlyReturnsActiveRows|TestRepositoryCRUDAndList|TestScanRecallCandidateRowsPreservesDistanceAndFullTextScore|TestFullTextQueryLiteralEscapesSpecialCharacters' -count=1 -v`
 
 Expected: the new search-normalization test fails first if the current behavior is not fully protected before moving helpers.
 
@@ -412,26 +412,26 @@ func toDomainMemories(models []MemoryModel) []memory.Memory {
 
 - [ ] **Step 5: Run the full TiDB package tests**
 
-Run: `go test ./internal/store/tidb -count=1 -v`
+Run: `go test ./internal/tidb -count=1 -v`
 
 Expected: PASS for CRUD, list, row scan, literal escaping, and the new search normalization test.
 
 - [ ] **Step 6: Commit the repository refactor**
 
 ```bash
-git add apps/server/internal/store/tidb/repository.go apps/server/internal/store/tidb/repository_test.go apps/server/internal/store/tidb/queries.go apps/server/internal/store/tidb/scan.go
+git add server/internal/tidb/repository.go server/internal/tidb/repository_test.go server/internal/tidb/queries.go server/internal/tidb/scan.go
 git commit -m "refactor: simplify tidb repository flows"
 ```
 
 ## Task 5: Refactor Provider Clients Into Request / Execute / Decode Stages
 
 **Files:**
-- Modify: `apps/server/internal/llm/openai.go`
-- Modify: `apps/server/internal/llm/openai_test.go`
-- Modify: `apps/server/internal/embedding/openai.go`
-- Modify: `apps/server/internal/embedding/openai_test.go`
-- Modify: `apps/server/internal/embedding/ollama.go`
-- Create: `apps/server/internal/embedding/ollama_test.go`
+- Modify: `server/internal/llm/openai.go`
+- Modify: `server/internal/llm/openai_test.go`
+- Modify: `server/internal/embedding/openai.go`
+- Modify: `server/internal/embedding/openai_test.go`
+- Modify: `server/internal/embedding/ollama.go`
+- Create: `server/internal/embedding/ollama_test.go`
 
 - [ ] **Step 1: Add behavior-lock tests for empty provider payloads**
 
@@ -564,7 +564,7 @@ Expected: PASS for retry behavior and the new empty-payload / embeddings-array t
 - [ ] **Step 6: Commit the provider refactor**
 
 ```bash
-git add apps/server/internal/llm/openai.go apps/server/internal/llm/openai_test.go apps/server/internal/embedding/openai.go apps/server/internal/embedding/openai_test.go apps/server/internal/embedding/ollama.go apps/server/internal/embedding/ollama_test.go
+git add server/internal/llm/openai.go server/internal/llm/openai_test.go server/internal/embedding/openai.go server/internal/embedding/openai_test.go server/internal/embedding/ollama.go server/internal/embedding/ollama_test.go
 git commit -m "refactor: stage provider request handling"
 ```
 
@@ -594,7 +594,7 @@ Expected: build succeeds with no compile errors.
 - [ ] **Step 4: If Tasks 1-5 forced a tiny support-package cleanup, commit that cleanup with the final verification**
 
 ```bash
-git add apps/server/internal
+git add server/internal
 git commit -m "refactor: align server code with recall style"
 ```
 

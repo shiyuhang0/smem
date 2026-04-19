@@ -2,7 +2,7 @@
 
 ## Goal
 
-Refactor `apps/server` ingest so it follows the `human_doc/design.md` ingest design instead of the current synchronous implementation: `POST /api/v1/memories` should create an ingest job, smart ingest must use the new extraction and fusion prompts, and background workers should execute ingest asynchronously against a new ingest-jobs table.
+Refactor `server/` ingest so it follows the `human_doc/design.md` ingest design instead of the current synchronous implementation: `POST /api/v1/memories` should create an ingest job, smart ingest must use the new extraction and fusion prompts, and background workers should execute ingest asynchronously against a new ingest-jobs table.
 
 ## Non-Goals
 
@@ -13,7 +13,7 @@ Refactor `apps/server` ingest so it follows the `human_doc/design.md` ingest des
 
 ## Current Mismatch
 
-The current `apps/server` ingest flow diverges from the approved design in four important ways:
+The current `server/` ingest flow diverges from the approved design in four important ways:
 
 1. `POST /api/v1/memories` executes ingest synchronously and returns `memory` records instead of a queued ingest job.
 2. Smart ingest still parses the old fusion payload shape (`decision`, `memory_id`, `content`) rather than the new `actions[]` protocol.
@@ -24,7 +24,7 @@ This redesign resolves those mismatches in favor of `human_doc/design.md`.
 
 ## Scope
 
-This redesign applies to `apps/server` only.
+This redesign applies to `server/` only.
 
 ### In Scope
 
@@ -275,13 +275,13 @@ This design avoids partially written memories with missing embeddings while stil
 - Add an ingest-job entity, enums, and repository interface.
 - Keep durable-memory rules in the memory domain package; job orchestration should not move memory CRUD rules into HTTP handlers.
 
-### `internal/store/tidb`
+### `internal/tidb`
 
 - Add `ingest_jobs` model, mapping helpers, repository implementation, and migration.
 - Support job submission, claiming, retry updates, and success updates.
 - Preserve `memories` persistence as the source of truth for durable memories.
 
-### `internal/transport/http`
+### `internal/http`
 
 - Update the create-memory handler and DTOs to return the ingest job response shape.
 - Preserve request validation rules unless they conflict with the new design.

@@ -1,6 +1,6 @@
 # SMEM Server API
 
-OpenAPI 文件位于 `apps/server/api/openapi.yaml`。
+OpenAPI 文件位于 `server/api/openapi.yaml`。
 
 ## Health
 

@@ -11,15 +11,15 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 
+	"smem/apps/server/internal/ai/embedding"
+	"smem/apps/server/internal/ai/llm"
+	"smem/apps/server/internal/ai/retry"
 	"smem/apps/server/internal/config"
+	"smem/apps/server/internal/domain/ingest"
 	"smem/apps/server/internal/domain/memory"
-	"smem/apps/server/internal/embedding"
-	"smem/apps/server/internal/llm"
-	"smem/apps/server/internal/retry"
-	"smem/apps/server/internal/store/tidb"
-	httptransport "smem/apps/server/internal/transport/http"
-	"smem/apps/server/internal/workflow/ingest"
-	"smem/apps/server/internal/workflow/recall"
+	"smem/apps/server/internal/domain/recall"
+	"smem/apps/server/internal/handler"
+	"smem/apps/server/internal/store"
 )
 
 type App struct {
@@ -30,7 +30,7 @@ type App struct {
 }
 
 func New(cfg config.Config) (*App, error) {
-	dsn, err := tidb.PrepareDSN(cfg)
+	dsn, err := store.PrepareDSN(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -38,12 +38,12 @@ func New(cfg config.Config) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := tidb.ApplyMigrations(context.Background(), db); err != nil {
+	if err := store.ApplyMigrations(context.Background(), db); err != nil {
 		return nil, err
 	}
-	memoryRepo := tidb.NewRepository(db)
-	jobRepo := tidb.NewIngestJobRepository(db)
-	txManager := tidb.NewTransactionManager(db)
+	memoryRepo := store.NewRepository(db)
+	jobRepo := store.NewIngestJobRepository(db)
+	txManager := store.NewTransactionManager(db)
 	memoryService := memory.NewService(memoryRepo)
 	retryPolicy := retry.DefaultPolicy()
 	llmProvider := llm.NewOpenAIProvider(llm.Config{
@@ -58,7 +58,7 @@ func New(cfg config.Config) (*App, error) {
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	jobWorker := ingest.NewJobWorker(jobRepo, txManager, recallService, llmProvider, embeddingProvider, newMemoryID, newWorkerID())
 	jobWorker.Start(workerCtx)
-	memoryHandler := httptransport.NewMemoryHandler(memoryService, ingestService, recallService)
+	memoryHandler := handler.NewMemoryHandler(memoryService, ingestService, recallService)
 
 	return &App{
 		Config:       cfg,

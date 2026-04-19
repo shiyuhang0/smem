@@ -1,6 +1,6 @@
 # SMEM Server Overview
 
-`apps/server` 是本项目的 memory 服务端实现，提供 memory 的存储、管理、搜索和召回能力。
+`server/` 是本项目的 memory 服务端实现，提供 memory 的存储、管理、搜索和召回能力。
 
 ## 支持能力
 

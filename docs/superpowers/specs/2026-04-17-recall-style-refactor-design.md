@@ -2,7 +2,7 @@
 
 ## Goal
 
-Refactor `apps/server` so its core Go code follows the same style qualities as `internal/workflow/recall/service.go`: readable main flows, clear helper extraction, focused comments at decision points, and stable observability at key stages.
+Refactor `server/` so its core Go code follows the same style qualities as `internal/workflow/recall/service.go`: readable main flows, clear helper extraction, focused comments at decision points, and stable observability at key stages.
 
 ## Non-Goals
 
@@ -25,7 +25,7 @@ These traits should be generalized without copying the exact shape of `Recall` i
 
 ## Scope
 
-This refactor applies to `apps/server` only.
+This refactor applies to `server/` only.
 
 ### Priority 1: Core Workflow And Service Flows
 
@@ -37,7 +37,7 @@ These packages contain the clearest request-to-result flows and should become th
 
 ### Priority 2: Persistence And External Integrations
 
-- `internal/store/tidb`
+- `internal/tidb`
 - `internal/llm`
 - `internal/embedding`
 
@@ -147,7 +147,7 @@ Make service methods consistently structured:
 
 Keep domain rules centralized and avoid mixing formatting noise into the main service methods.
 
-### `internal/store/tidb`
+### `internal/tidb`
 
 Repository methods should expose a clean shape:
 

@@ -12,38 +12,38 @@
 
 ## File Map
 
-- Create: `apps/server/internal/domain/ingestjob/entity.go`
-- Create: `apps/server/internal/domain/ingestjob/enum.go`
-- Create: `apps/server/internal/domain/ingestjob/repository.go`
-- Create: `apps/server/internal/store/tidb/ingest_job_repository.go`
-- Create: `apps/server/migrations/002_create_ingest_jobs.sql`
-- Create: `apps/server/internal/workflow/ingest/job_types.go`
-- Create: `apps/server/internal/workflow/ingest/parser.go`
-- Create: `apps/server/internal/workflow/ingest/job_worker.go`
-- Modify: `apps/server/internal/store/tidb/model.go`
-- Modify: `apps/server/internal/store/tidb/repository.go`
-- Modify: `apps/server/internal/llm/prompt.go`
-- Modify: `apps/server/internal/workflow/ingest/service.go`
-- Modify: `apps/server/internal/workflow/ingest/ingest_test.go`
-- Modify: `apps/server/internal/transport/http/memory_handler.go`
-- Modify: `apps/server/internal/transport/http/response.go`
-- Modify: `apps/server/internal/transport/http/memory_handler_test.go`
-- Modify: `apps/server/internal/app/app.go`
-- Test: `apps/server/internal/workflow/ingest/ingest_test.go`
-- Test: `apps/server/internal/transport/http/memory_handler_test.go`
-- Test: `apps/server/internal/store/tidb/repository_test.go`
+- Create: `server/internal/domain/ingestjob/entity.go`
+- Create: `server/internal/domain/ingestjob/enum.go`
+- Create: `server/internal/domain/ingestjob/repository.go`
+- Create: `server/internal/tidb/ingest_job_repository.go`
+- Create: `server/migrations/002_create_ingest_jobs.sql`
+- Create: `server/internal/workflow/ingest/job_types.go`
+- Create: `server/internal/workflow/ingest/parser.go`
+- Create: `server/internal/workflow/ingest/job_worker.go`
+- Modify: `server/internal/tidb/model.go`
+- Modify: `server/internal/tidb/repository.go`
+- Modify: `server/internal/llm/prompt.go`
+- Modify: `server/internal/workflow/ingest/service.go`
+- Modify: `server/internal/workflow/ingest/ingest_test.go`
+- Modify: `server/internal/http/memory_handler.go`
+- Modify: `server/internal/http/response.go`
+- Modify: `server/internal/http/memory_handler_test.go`
+- Modify: `server/internal/app/app.go`
+- Test: `server/internal/workflow/ingest/ingest_test.go`
+- Test: `server/internal/http/memory_handler_test.go`
+- Test: `server/internal/tidb/repository_test.go`
 
 ### Task 1: Add Ingest Job Domain And Persistence
 
 **Files:**
-- Create: `apps/server/internal/domain/ingestjob/entity.go`
-- Create: `apps/server/internal/domain/ingestjob/enum.go`
-- Create: `apps/server/internal/domain/ingestjob/repository.go`
-- Create: `apps/server/internal/store/tidb/ingest_job_repository.go`
-- Modify: `apps/server/internal/store/tidb/model.go`
-- Modify: `apps/server/internal/store/tidb/repository.go`
-- Create: `apps/server/migrations/002_create_ingest_jobs.sql`
-- Test: `apps/server/internal/store/tidb/repository_test.go`
+- Create: `server/internal/domain/ingestjob/entity.go`
+- Create: `server/internal/domain/ingestjob/enum.go`
+- Create: `server/internal/domain/ingestjob/repository.go`
+- Create: `server/internal/tidb/ingest_job_repository.go`
+- Modify: `server/internal/tidb/model.go`
+- Modify: `server/internal/tidb/repository.go`
+- Create: `server/migrations/002_create_ingest_jobs.sql`
+- Test: `server/internal/tidb/repository_test.go`
 
 - [ ] **Step 1: Write the failing repository tests**
 
@@ -51,7 +51,7 @@ Add tests that prove the new repository can submit a job, claim the next executa
 
 - [ ] **Step 2: Run repository tests to verify they fail**
 
-Run: `go test ./internal/store/tidb -run 'TestIngestJob' -count=1`
+Run: `go test ./internal/tidb -run 'TestIngestJob' -count=1`
 
 Expected: FAIL because the ingest job types/repository and migration-backed schema do not exist yet.
 
@@ -65,19 +65,19 @@ Implement:
 
 - [ ] **Step 4: Run repository tests to verify they pass**
 
-Run: `go test ./internal/store/tidb -run 'TestIngestJob' -count=1`
+Run: `go test ./internal/tidb -run 'TestIngestJob' -count=1`
 
 Expected: PASS.
 
 ### Task 2: Replace Ingest Prompt Protocol And Worker Execution
 
 **Files:**
-- Create: `apps/server/internal/workflow/ingest/job_types.go`
-- Create: `apps/server/internal/workflow/ingest/parser.go`
-- Create: `apps/server/internal/workflow/ingest/job_worker.go`
-- Modify: `apps/server/internal/llm/prompt.go`
-- Modify: `apps/server/internal/workflow/ingest/service.go`
-- Modify: `apps/server/internal/workflow/ingest/ingest_test.go`
+- Create: `server/internal/workflow/ingest/job_types.go`
+- Create: `server/internal/workflow/ingest/parser.go`
+- Create: `server/internal/workflow/ingest/job_worker.go`
+- Modify: `server/internal/llm/prompt.go`
+- Modify: `server/internal/workflow/ingest/service.go`
+- Modify: `server/internal/workflow/ingest/ingest_test.go`
 
 - [ ] **Step 1: Write the failing ingest workflow tests**
 
@@ -112,10 +112,10 @@ Expected: PASS.
 ### Task 3: Update HTTP/App Wiring For Job Submission
 
 **Files:**
-- Modify: `apps/server/internal/transport/http/memory_handler.go`
-- Modify: `apps/server/internal/transport/http/response.go`
-- Modify: `apps/server/internal/transport/http/memory_handler_test.go`
-- Modify: `apps/server/internal/app/app.go`
+- Modify: `server/internal/http/memory_handler.go`
+- Modify: `server/internal/http/response.go`
+- Modify: `server/internal/http/memory_handler_test.go`
+- Modify: `server/internal/app/app.go`
 
 - [ ] **Step 1: Write the failing HTTP test**
 
@@ -123,7 +123,7 @@ Update the create-memory handler test so `POST /api/v1/memories` expects an inge
 
 - [ ] **Step 2: Run the HTTP test to verify it fails**
 
-Run: `go test ./internal/transport/http -run TestMemoryHandlerCreateAndGet -count=1`
+Run: `go test ./internal/http -run TestMemoryHandlerCreateAndGet -count=1`
 
 Expected: FAIL because the handler still returns memory items instead of an ingest job response.
 
@@ -136,7 +136,7 @@ Implement:
 
 - [ ] **Step 4: Run the HTTP test to verify it passes**
 
-Run: `go test ./internal/transport/http -run TestMemoryHandlerCreateAndGet -count=1`
+Run: `go test ./internal/http -run TestMemoryHandlerCreateAndGet -count=1`
 
 Expected: PASS.
 

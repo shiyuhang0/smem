@@ -31,7 +31,7 @@
 
 - feature: 支持 embedding 多 provider。
 - refactor: 清理无用配置。
-- fix: 修复 TiDB 连接与启动链路。DB DSN 统一自动注入；`parseTime=true` 和 `tls=tidb`，避免时间字段扫描/TLS 配置错误；服务启动不再使用 `AutoMigrate`，改为按顺序执行 `apps/server/migrations/*.sql`。
+- fix: 修复 TiDB 连接与启动链路。DB DSN 统一自动注入；`parseTime=true` 和 `tls=tidb`，避免时间字段扫描/TLS 配置错误；服务启动不再使用 `AutoMigrate`，改为按顺序执行 `server/migrations/*.sql`。
 
 ### 2026-04-17 22:00
 

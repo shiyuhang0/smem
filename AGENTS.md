@@ -2,8 +2,8 @@
 This file is for coding agents working in `smem`.
 
 ## Repository Status
-- Active implementation is currently in `apps/server`.
-- `apps/plugin-openclaw` and `apps/dashboard` are placeholders.
+- Active implementation is currently in `server/`.
+- `apps/plugin-openclaw` and `apps/dashboard` are placeholders (not present in tree yet).
 - There is no `Makefile`, no root `package.json`, and no repo-wide task runner.
 - There is no `.cursorrules`, no `.cursor/rules/`, and no `.github/copilot-instructions.md` in this repository.
 
@@ -16,12 +16,12 @@ This file is for coding agents working in `smem`.
 - OpenAI-compatible HTTP APIs for LLM and embeddings
 
 ## Working Directory
-- Run server commands from `apps/server`.
+- Run server commands from `server/`.
 - Run repo-level inspections from the repository root.
-- Do not assume root-level Go commands work; the Go module lives in `apps/server`.
+- Do not assume root-level Go commands work; the Go module lives in `server/` (module path `smem/apps/server`).
 
 ## Build Commands
-From `apps/server`:
+From `server/`:
 
 ```bash
 go build ./cmd/smem-server
@@ -39,31 +39,31 @@ go test ./...
 Run one package:
 
 ```bash
-go test ./internal/workflow/ingest
-go test ./internal/workflow/recall
-go test ./internal/store/tidb
-go test ./internal/transport/http
+go test ./internal/domain/ingest
+go test ./internal/domain/recall
+go test ./internal/store
+go test ./internal/handler
 ```
 
 Run one specific test:
 
 ```bash
-go test ./internal/store/tidb -run TestTiDBCloudConnection -v
-go test ./internal/workflow/ingest -run TestSmartCreateUsesFusionDecisionToUpdateExistingMemory -v
-go test ./internal/workflow/recall -run TestRecallUsesRewriteTypeAndKindsToBoostMatches -v
-go test ./internal/transport/http -run TestMemoryHandlerCreateAndGet -v
+go test ./internal/store -run TestTiDBCloudConnection -v
+go test ./internal/domain/ingest -run TestSmartCreateUsesFusionDecisionToUpdateExistingMemory -v
+go test ./internal/domain/recall -run TestRecallUsesRewriteTypeAndKindsToBoostMatches -v
+go test ./internal/handler -run TestMemoryHandlerCreateAndGet -v
 ```
 
 Disable test caching when debugging:
 
 ```bash
-go test ./internal/transport/http -count=1 -v
+go test ./internal/handler -count=1 -v
 ```
 
 Run the TiDB Cloud integration test:
 
 ```bash
-SMEM_INTEGRATION_TIDB=1 DB_DSN='...' DB_TLS_SERVER_NAME='...' go test ./internal/store/tidb -run TestTiDBCloudConnection -v
+SMEM_INTEGRATION_TIDB=1 DB_DSN='...' DB_TLS_SERVER_NAME='...' go test ./internal/tidb -run TestTiDBCloudConnection -v
 ```
 
 ## Formatting / Linting
@@ -88,16 +88,17 @@ Do not edit `go.mod` or `go.sum` manually unless absolutely necessary.
 ## Architecture Overview
 - `cmd/smem-server`: binary entrypoint
 - `internal/app`: app wiring and router setup
-- `internal/config`: environment-based config loading
+- `internal/config`: environment-based config loading and std logger helper (`NewLogger`)
 - `internal/domain/memory`: core types, validation, service logic
-- `internal/transport/http`: HTTP handlers and DTOs
-- `internal/store/tidb`: GORM models, repository, TLS DSN prep, migrations
-- `internal/retry`: shared retry policy for LLM and embedding calls
-- `internal/llm`: LLM abstraction and OpenAI-compatible implementation
-- `internal/embedding`: embedding abstraction and OpenAI-compatible implementation
-- `internal/workflow/ingest`: normal/smart ingest orchestration
-- `internal/workflow/recall`: recall orchestration
-- `internal/search`: fusion and rerank helpers
+- `internal/domain/ingestjob`: ingest job types and repository interface
+- `internal/handler`: HTTP handlers and DTOs
+- `internal/store`: GORM models, repository, TLS DSN prep, migrations
+- `internal/ai/llm`: LLM abstraction and OpenAI-compatible implementation
+- `internal/ai/embedding`: embedding abstraction and OpenAI/Ollama implementations
+- `internal/ai/retry`: shared retry policy for LLM and embedding calls
+- `internal/domain/ingest`: normal/smart ingest orchestration
+- `internal/domain/recall`: recall orchestration
+- `internal/domain/recall/scoring`: RRF fusion, rerank scoring, softmax
 
 Follow the existing layering. Do not put HTTP concerns into domain packages.
 
@@ -109,7 +110,7 @@ Follow the existing layering. Do not put HTTP concerns into domain packages.
 - Match existing naming and package boundaries before introducing new abstractions.
 
 ### Recall-Style Flows
-- For service and workflow entrypoints, prefer the style demonstrated by `apps/server/internal/workflow/recall/service.go` in `Recall`.
+- For service and workflow entrypoints, prefer the style demonstrated by `server/internal/domain/recall/service.go` in `Recall`.
 - Keep top-level logic easy to read: normalize input first, keep the main path linear, and avoid burying the flow in dense branches.
 - Add comments only at important decision points, trade-offs, or future extension points.
 - Keep key stages observable with concise logs so the recall/ingest/search path can be diagnosed from runtime output.
@@ -124,7 +125,7 @@ Follow the existing layering. Do not put HTTP concerns into domain packages.
 - Let `gofmt` manage import grouping.
 - Standard library imports first, third-party imports next, local module imports last.
 - Prefer import aliases only when needed to resolve collisions or clarify intent.
-- Existing aliases like `stdhttp` and `searchfusion` are acceptable; use them sparingly.
+- Existing aliases like `stdhttp` are acceptable; use them sparingly.
 
 ### Naming
 - Exported names: `PascalCase`.
@@ -171,12 +172,12 @@ If behavior changes, update:
 - `docs/getting-started.md`
 - `docs/server/*.md`
 - `docs/deploy/*.md`
-- `apps/server/api/openapi.yaml`
+- `server/api/openapi.yaml`
 
 Keep docs aligned with real behavior, not intended behavior.
 
 ## Before Finishing
-From `apps/server`, run:
+From `server/`, run:
 
 ```bash
 gofmt -w ./cmd ./internal
@@ -187,7 +188,7 @@ go build ./cmd/smem-server
 If you changed DB connectivity or TiDB TLS behavior and credentials are available, also run:
 
 ```bash
-SMEM_INTEGRATION_TIDB=1 DB_DSN='...' DB_TLS_SERVER_NAME='...' go test ./internal/store/tidb -run TestTiDBCloudConnection -v
+SMEM_INTEGRATION_TIDB=1 DB_DSN='...' DB_TLS_SERVER_NAME='...' go test ./internal/store -run TestTiDBCloudConnection -v
 ```
 
 Do not claim completion without fresh command output.

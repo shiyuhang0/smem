@@ -2,9 +2,8 @@
 
 `smem` 是一个面向 Agent 的个人记忆系统项目，当前仓库包含：
 
-- `apps/server`: Go 服务端，负责 memory 存储、管理、搜索和召回
-- `apps/plugin-openclaw`: 预留的 openclaw memory plugin 目录
-- `apps/dashboard`: 预留的 dashboard 目录
+- `server/`: Go 服务端，负责 memory 存储、管理、搜索和召回
+- 预留：`plugin-openclaw` memory plugin、`dashboard`（尚未在仓库中创建目录）
 
 ## 当前状态
 
@@ -28,16 +27,13 @@
 ## 目录概览
 
 ```text
-apps/
-  server/
-  plugin-openclaw/
-  dashboard/
+server/          # Go module（module: smem/apps/server）
 docs/
   deploy/
   server/
-packages/
+human_doc/
 ```
 
 ## 当前优先级
 
-当前主要实现集中在 `apps/server`。plugin 和 dashboard 目录已预留，但尚未进入功能开发阶段。
+当前主要实现集中在 `server/`。plugin 与 dashboard 尚未进入功能开发阶段。

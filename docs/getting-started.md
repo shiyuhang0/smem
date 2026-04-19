@@ -15,7 +15,7 @@
 推荐先使用模板文件：
 
 ```bash
-cd apps/server
+cd server
 cp config.yaml.example config.yaml
 ```
 
@@ -53,7 +53,7 @@ export EMBEDDING_MODEL='bge-m3'
 export EMBEDDING_DIM='1024'
 ```
 
-如果你不想把配置文件放在 `apps/server/config.yaml`，也可以显式指定：
+如果你不想把配置文件放在 `server/config.yaml`，也可以显式指定：
 
 ```bash
 export SMEM_CONFIG_FILE='/absolute/path/to/config.yaml'
@@ -62,14 +62,14 @@ export SMEM_CONFIG_FILE='/absolute/path/to/config.yaml'
 ## 3. 启动服务端
 
 ```bash
-cd apps/server
+cd server
 go run ./cmd/smem-server
 ```
 
 启动时会自动尝试：
 
 - 连接数据库
-- 按文件名顺序执行 `apps/server/migrations/*.sql`
+- 按文件名顺序执行 `server/migrations/*.sql`
 - 初始化 HTTP 路由
 
 ## 4. 验证服务
@@ -97,13 +97,13 @@ curl -X POST http://localhost:8080/api/v1/memories/recall \
 ## 7. 跑测试
 
 ```bash
-cd apps/server
+cd server
 go test ./...
 ```
 
 如果你要验证真实 TiDB Cloud 连接：
 
 ```bash
-cd apps/server
-SMEM_INTEGRATION_TIDB=1 go test ./internal/store/tidb -run TestTiDBCloudConnection -v
+cd server
+SMEM_INTEGRATION_TIDB=1 go test ./internal/tidb -run TestTiDBCloudConnection -v
 ```

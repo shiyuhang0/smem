@@ -1,10 +1,10 @@
 .DS_Store
 
 # Local runtime config
-apps/server/config.yaml
+server/config.yaml
 
 # Go build output
-apps/server/smem-server
+server/smem-server
 
 # Temporary test binaries
 *.test

@@ -19,7 +19,7 @@
 
 如果两边都配置了同一个字段，以 `config.yaml` 为准。
 
-默认会读取 `apps/server/config.yaml`。如果想用别的路径，可以设置：
+默认会读取 `server/config.yaml`。如果想用别的路径，可以设置：
 
 ```bash
 export SMEM_CONFIG_FILE='/absolute/path/to/config.yaml'
@@ -122,7 +122,7 @@ export EMBEDDING_DIM='1536'
 推荐从模板开始：
 
 ```bash
-cd apps/server
+cd server
 cp config.yaml.example config.yaml
 ```
 
@@ -158,14 +158,14 @@ export EMBEDDING_DIM='1536'
 ## 启动
 
 ```bash
-cd apps/server
+cd server
 go run ./cmd/smem-server
 ```
 
 启动时会自动：
 
 - 连接 TiDB Cloud
-- 按文件名顺序执行 `apps/server/migrations/*.sql`
+- 按文件名顺序执行 `server/migrations/*.sql`
 - 初始化 HTTP 路由
 
 ## 验证
