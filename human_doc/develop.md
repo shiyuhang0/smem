@@ -54,4 +54,6 @@
 ### 2026-04-19
 
 - code: 基于 ingest design 与 prompt 重构 ingest 逻辑
+- refactor: 重构目录与代码结构。优化后的代码结构更简明
+- docs: 删除无用 docs。为 server 增加 readme.md 与 agents.md
 
