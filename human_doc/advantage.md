@@ -1,70 +1,42 @@
 # Advantage of SMEM
 
+记录优点/创新点。
+
 ## 架构
 
-服务端和 plugin 解耦
+client + 服务端的架构，client 以 plugin 形式注入 agent。
+
+解耦合
+- 服务端专注记忆处理
+- client 调用 CRUD。
 
 ## recall
 
-hybrid recall：
+1. hybrid 粗排: vector search + fulltext search + RRF
+2. 打分精排: （如何解决记忆和业务相关，如最近的记忆优先，多次加深的记忆优先等）设计了 relevance-gated 的多维度打分策略：
+   - vector search + fulltext search 作为 relevance。保证主要分数来源是相似性。
+   - 当 relevance 过阈值（0.2），再加 0.1*boost (更新时间，存储次数，类型等)，多维度打分。
+3. 快速：（解决速度和确认性）recall 只有和数据库的网络交互，不依赖任何大模型。速度有保障，确认性强。
 
-粗排：vector search + fulltext search + RRF
-精排 rerank: 设计了基于 relevance-gated 的多维度打分策略：
-- vector search + fulltext search 作为 relevance
-- 当 relevance 过阈值（0.2），再加 0.1*boost (更新时间，存储次数，类型等)
-
-多维度召回
-- 更新的：新记忆优先召回
-- 记得更多的会被优先召回。比如：我爱吃饭，我爱吃面（多次记忆），当问最爱吃什么，爱吃面优先召回
+多维度召回的好处
+- 更新记忆优先召回。
+- 加深的记忆优先召回。比如：我爱吃饭，我爱吃面（多次记忆），当问最爱吃什么，爱吃面优先召回
 - 类型，和问题匹配的类型优先召回
-- 其他：
+- 其他记忆相关特点。
 
-快速
-- recall 完全不依赖 LLM，确认性强。
+softmax:（如何解决老记忆不被召回了，比如有些老记忆因为时间太旧总是不召回）softmax + temperature，打分后算概率，按概率召回，而不是直接选择 topK。这样记忆会更发散。
 
 ## Ingest
 
-两种召回模式
-- smart ingest：智能召回
-- normal ingest: 直接向量化后存储
+1. 两种 ingest 模式： smart ingest + normal ingest （直接向量化后存储）
+2. 异步 ingest
+3. content hash 去重
+4. 智能召回：LLM 提取关键信息 + LLM 记忆融合 （做了 prompt 工程）
+   1. 新记忆定义  ignore | create ；老记忆定义 update | delete ｜ ignore。
 
-smart ingest 设计关键点（prompt 工程）
-1. prompt 工程
-2. 异步
-3. 自动提取关键信息
-4. 记忆融合：新记忆定义  ignore | create 老记忆定义 update | delete ｜ ignore。记忆加深的机制
-5. 其他：去重 content hash 
+记忆融合主要情况分析
+- 新记忆：创建新的
+- 冲突记忆：创建新的，删除老的
+- 无用记忆：ignore
+- 相似记忆：ignore + 更新老记忆（同时更新 store_count）
 
-## plugin
-
-client plugin memory 包裹去重
-
-## 以后可以做的
-
-1. 不同类型定义不同融合策略：
-- append-only for episodic
-- overwrite for canonical preference/profile
-- close old + create new for conflicting facts
-- require confidence threshold for auto-update
-
-## Future
-
-1. recall 第一步是对 query 先走 LLM 抽取 content/type/kind
-
-
-3. 失败降级策略
-长期记忆系统不要让 LLM/embedding 故障拖垮主链路。
-建议明确：
-- embedding 失败时：是否先存 raw memory 待补 embedding
-- LLM 提取失败时：是否退回 raw ingest
-- recall 服务失败时：plugin 是否静默跳过
-- full-text 不可用时：是否只跑 vector
-
-## Other Ref
-
-- ignore：无长期价值
-- create：新 memory
-- update：更新现有 canonical memory
-- merge：和多个 memory 合并
-- archive：旧 memory 失效
-- conflict：发现互相矛盾但不能自动决定
