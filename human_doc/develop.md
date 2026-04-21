@@ -71,3 +71,7 @@
 - dashboard: 设计并实现 dashboard。
 
 ![dashboard](dashboard.png)
+
+### 2026-04-21 21:00
+
+- server: 优化日志

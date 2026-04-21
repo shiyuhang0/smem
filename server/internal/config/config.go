@@ -14,6 +14,7 @@ type Config struct {
 	ServerAddr        string
 	DBDSN             string
 	DBTLSServerName   string
+	EnableDBLogReads  bool
 	OpenAIBaseURL     string
 	OpenAIAPIKey      string
 	OpenAIChatModel   string
@@ -28,6 +29,7 @@ type fileConfig struct {
 	ServerAddr        *string `yaml:"server_addr"`
 	DBDSN             *string `yaml:"db_dsn"`
 	DBTLSServerName   *string `yaml:"db_tls_server_name"`
+	EnableDBLogReads  *bool   `yaml:"enable_db_log_reads"`
 	OpenAIBaseURL     *string `yaml:"openai_base_url"`
 	OpenAIAPIKey      *string `yaml:"openai_api_key"`
 	OpenAIChatModel   *string `yaml:"openai_chat_model"`
@@ -43,6 +45,7 @@ func Load() (Config, error) {
 		ServerAddr:        stringWithDefault("SERVER_ADDR", ":8080"),
 		DBDSN:             strings.TrimSpace(os.Getenv("DB_DSN")),
 		DBTLSServerName:   strings.TrimSpace(os.Getenv("DB_TLS_SERVER_NAME")),
+		EnableDBLogReads:  boolWithDefault("ENABLE_DB_LOG_READS", false),
 		OpenAIBaseURL:     stringWithDefault("OPENAI_BASE_URL", "https://api.openai.com/v1"),
 		OpenAIAPIKey:      strings.TrimSpace(os.Getenv("OPENAI_API_KEY")),
 		OpenAIChatModel:   stringWithDefault("OPENAI_CHAT_MODEL", "gpt-4.1-mini"),
@@ -119,6 +122,9 @@ func mergeFileConfig(cfg Config, file fileConfig) Config {
 	}
 	if file.DBTLSServerName != nil {
 		cfg.DBTLSServerName = strings.TrimSpace(*file.DBTLSServerName)
+	}
+	if file.EnableDBLogReads != nil {
+		cfg.EnableDBLogReads = *file.EnableDBLogReads
 	}
 	if file.OpenAIBaseURL != nil {
 		cfg.OpenAIBaseURL = strings.TrimSpace(*file.OpenAIBaseURL)
@@ -197,4 +203,16 @@ func intWithDefault(key string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+func boolWithDefault(key string, fallback bool) bool {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	b, err := strconv.ParseBool(value)
+	if err != nil {
+		return fallback
+	}
+	return b
 }

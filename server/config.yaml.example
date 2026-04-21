@@ -4,6 +4,8 @@ server_addr: ":8080"
 db_dsn: "user:password@tcp(gateway01.ap-southeast-1.prod.aws.tidbcloud.com:4000)/smem"
 db_tls_server_name: "gateway01.ap-southeast-1.prod.aws.tidbcloud.com"
 
+# enable_db_log_reads: false
+
 openai_base_url: "https://api.openai.com/v1"
 openai_api_key: "your-api-key"
 openai_chat_model: "gpt-4.1-mini"

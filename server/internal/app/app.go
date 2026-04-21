@@ -10,6 +10,7 @@ import (
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
+	gormlogger "gorm.io/gorm/logger"
 
 	"smem/apps/server/internal/ai/embedding"
 	"smem/apps/server/internal/ai/llm"
@@ -34,7 +35,9 @@ func New(cfg config.Config) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{
+		Logger: store.NewFilteringLogger(gormlogger.Default.LogMode(gormlogger.Info), cfg.EnableDBLogReads),
+	})
 	if err != nil {
 		return nil, err
 	}

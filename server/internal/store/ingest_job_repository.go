@@ -88,18 +88,20 @@ func (r *IngestJobRepository) MarkSucceeded(ctx context.Context, job ingestjob.J
 func (r *IngestJobRepository) claimNextOnce(ctx context.Context, workerID string, now time.Time) (ingestjob.Job, error) {
 	var claimed ingestjob.Job
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var model IngestJobModel
+		var models []IngestJobModel
 		err := tx.
 			Where("state = ?", string(ingestjob.StatePending)).
 			Where("next_run_at IS NULL OR next_run_at <= ?", now).
 			Order("created_at asc").
-			First(&model).Error
+			Limit(1).
+			Find(&models).Error
 		if err != nil {
-			if err == gorm.ErrRecordNotFound {
-				return ingestjob.ErrNotFound
-			}
 			return err
 		}
+		if len(models) == 0 {
+			return ingestjob.ErrNotFound
+		}
+		model := models[0]
 
 		lockedAt := now.UTC()
 		result := tx.Model(&IngestJobModel{}).

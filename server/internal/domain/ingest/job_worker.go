@@ -73,10 +73,15 @@ func (w *JobWorker) Start(ctx context.Context) {
 }
 
 func (w *JobWorker) RunOnce(ctx context.Context) error {
+	ingestLogger.Printf("run ingest worker")
 	job, err := w.jobs.ClaimNext(ctx, w.workerID, w.now().UTC())
 	if err != nil {
+		if err == ingestjob.ErrNotFound {
+			return nil
+		}
 		return err
 	}
+
 	ingestLogger.Printf("job_claimed job_id=%s attempt=%d mode=%s", job.ID, job.ExecuteCount, job.Mode)
 
 	if err := w.executeJob(ctx, job); err != nil {
