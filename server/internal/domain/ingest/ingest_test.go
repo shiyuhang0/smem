@@ -79,6 +79,7 @@ func TestJobWorkerRunOnceNormalModeCreatesMemoryAndMarksSuccess(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, memory.StateActive, stored.State)
 	require.Equal(t, []float32{0.1, 0.2}, stored.Embedding)
+	require.Empty(t, stored.Kind)
 
 	job, err := jobs.GetByID(context.Background(), "job-1")
 	require.NoError(t, err)
@@ -134,6 +135,7 @@ func TestJobWorkerRunOnceSmartModeUpdatesExistingMemory(t *testing.T) {
 	updated, err := memories.GetByID(context.Background(), "existing-1")
 	require.NoError(t, err)
 	require.Equal(t, "user prefers neovim", updated.Content)
+	require.Equal(t, "preference", updated.Kind)
 	require.Equal(t, 2, updated.Version)
 	require.Equal(t, 2, updated.StoreCount)
 	require.Equal(t, []float32{0.3, 0.4}, updated.Embedding)
@@ -241,16 +243,19 @@ func (r *memoryRepo) UpsertByContentHash(_ context.Context, m memory.Memory) (me
 		}
 		item.StoreCount += m.StoreCount
 		item.Embedding = m.Embedding
+		item.Kind = memory.PrimaryKind(m.Kinds)
 		item.State = m.State
 		item.UpdatedAt = m.UpdatedAt
 		r.items[id] = item
 		return item, nil
 	}
+	m.Kind = memory.PrimaryKind(m.Kinds)
 	r.items[m.ID] = m
 	return m, nil
 }
 
 func (r *memoryRepo) Update(_ context.Context, m memory.Memory) (memory.Memory, error) {
+	m.Kind = memory.PrimaryKind(m.Kinds)
 	r.items[m.ID] = m
 	return m, nil
 }
@@ -274,6 +279,10 @@ func (r *memoryRepo) List(_ context.Context, _ memory.ListInput) ([]memory.Memor
 		out = append(out, item)
 	}
 	return out, int64(len(out)), nil
+}
+
+func (r *memoryRepo) ListTopKinds(_ context.Context, _ int) ([]memory.KindCount, error) {
+	return nil, nil
 }
 
 func (r *memoryRepo) Search(_ context.Context, _ string, _ int) ([]memory.Memory, error) {

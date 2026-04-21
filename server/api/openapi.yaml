@@ -51,6 +51,10 @@ paths:
           schema:
             type: string
         - in: query
+          name: kind
+          schema:
+            type: string
+        - in: query
           name: state
           schema:
             type: string
@@ -61,6 +65,19 @@ paths:
       responses:
         '200':
           description: List result
+  /api/v1/memories/kinds:
+    get:
+      summary: List top memory kinds
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 10
+            maximum: 50
+      responses:
+        '200':
+          description: Kind list result
   /api/v1/memories/{id}:
     get:
       summary: Get one memory

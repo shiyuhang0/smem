@@ -106,7 +106,10 @@ func (s *Service) finalizeRecallResults(results []memory.RecallResult, input mem
 		return s.selectTopKByProbability(results, input.TopK)
 	}
 
-	return results[:input.TopK]
+	if input.TopK < len(results) {
+		return results[:input.TopK]
+	}
+	return results
 }
 
 func (s *Service) searchVectorCandidates(ctx context.Context, query string, topK int) ([]memory.RecallCandidate, error) {

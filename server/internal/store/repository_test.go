@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -15,7 +16,7 @@ import (
 )
 
 func TestRepositoryCRUDAndList(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := openTestDB(t)
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&MemoryModel{}))
 
@@ -41,6 +42,7 @@ func TestRepositoryCRUDAndList(t *testing.T) {
 	loaded, err := repo.GetByID(context.Background(), "m1")
 	require.NoError(t, err)
 	require.Equal(t, "remember this", loaded.Content)
+	require.Equal(t, "note", loaded.Kind)
 
 	loaded.Content = "remember this better"
 	updated, err := repo.Update(context.Background(), loaded)
@@ -58,7 +60,7 @@ func TestRepositoryCRUDAndList(t *testing.T) {
 }
 
 func TestRepositoryUpsertByContentHashIncrementsStoreCount(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := openTestDB(t)
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&MemoryModel{}))
 
@@ -102,7 +104,7 @@ func TestRepositoryUpsertByContentHashIncrementsStoreCount(t *testing.T) {
 }
 
 func TestScanRecallCandidateRowsPreservesDistanceAndFullTextScore(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := openTestDB(t)
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&MemoryModel{}))
 
@@ -128,6 +130,7 @@ func TestScanRecallCandidateRowsPreservesDistanceAndFullTextScore(t *testing.T) 
 			content,
 			content_hash,
 			type,
+			kind,
 			kinds,
 			scope,
 			state,
@@ -162,6 +165,39 @@ func TestScanRecallCandidateRowsPreservesDistanceAndFullTextScore(t *testing.T) 
 func TestFullTextQueryLiteralEscapesSpecialCharacters(t *testing.T) {
 	require.Equal(t, "'bluetooth'", fullTextQueryLiteral("bluetooth"))
 	require.Equal(t, "'O''Reilly \\\\ guide'", fullTextQueryLiteral("O'Reilly \\ guide"))
+}
+
+func TestRepositoryUpsertByContentHashDerivesKindFromKinds(t *testing.T) {
+	db, err := openTestDB(t)
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&MemoryModel{}))
+
+	repo := NewRepository(db)
+	now := time.Unix(120, 0).UTC()
+
+	stored, err := repo.UpsertByContentHash(context.Background(), memory.Memory{
+		ID:          "m1",
+		Content:     "remember this",
+		ContentHash: memory.HashContent("remember this"),
+		State:       memory.StateActive,
+		Scope:       memory.ScopeUser,
+		Kinds:       []string{"preference", "note"},
+		Version:     1,
+		StoreCount:  1,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "preference", stored.Kind)
+
+	loaded, err := repo.GetByID(context.Background(), "m1")
+	require.NoError(t, err)
+	require.Equal(t, "preference", loaded.Kind)
+}
+
+func openTestDB(t *testing.T) (*gorm.DB, error) {
+	t.Helper()
+	return gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
 }
 
 func TestIngestJobRepositorySubmitClaimRetryAndSucceed(t *testing.T) {

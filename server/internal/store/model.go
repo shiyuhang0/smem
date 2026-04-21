@@ -121,6 +121,7 @@ type MemoryModel struct {
 	Embedding      Float32Slice `gorm:"type:json"`
 	ContentHash    string       `gorm:"size:64;uniqueIndex;not null"`
 	Type           string       `gorm:"size:32"`
+	Kind           string       `gorm:"size:32;index"`
 	Kinds          StringSlice  `gorm:"type:json"`
 	Scope          string       `gorm:"size:32;index;not null"`
 	State          string       `gorm:"size:32;index;not null"`
@@ -147,6 +148,7 @@ func fromDomain(m memory.Memory) MemoryModel {
 		Embedding:      Float32Slice(m.Embedding),
 		ContentHash:    m.ContentHash,
 		Type:           string(m.Type),
+		Kind:           memory.PrimaryKind(m.Kinds),
 		Kinds:          StringSlice(m.Kinds),
 		Scope:          string(m.Scope),
 		State:          string(m.State),
@@ -170,6 +172,7 @@ func (m MemoryModel) toDomain() memory.Memory {
 		Embedding:      []float32(m.Embedding),
 		ContentHash:    m.ContentHash,
 		Type:           memory.Type(m.Type),
+		Kind:           m.Kind,
 		Kinds:          []string(m.Kinds),
 		Scope:          memory.Scope(m.Scope),
 		State:          memory.State(m.State),

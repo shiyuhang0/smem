@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS memories (
   embedding VECTOR(1536) NULL,
   content_hash VARCHAR(64) NOT NULL,
   type VARCHAR(32) NULL,
+  kind VARCHAR(32) NULL,
   kinds JSON NULL,
   scope VARCHAR(32) NOT NULL DEFAULT 'user',
   state VARCHAR(32) NOT NULL DEFAULT 'creating',
@@ -21,6 +22,7 @@ CREATE TABLE IF NOT EXISTS memories (
   FULLTEXT INDEX fts_memories_content (content) WITH PARSER MULTILINGUAL,
   UNIQUE KEY uq_memories_content_hash (content_hash),
   KEY idx_memories_state (state),
+  KEY idx_memories_kind (kind),
   KEY idx_memories_type (type),
   KEY idx_memories_agent_id (agent_id),
   KEY idx_memories_session_id (session_id)

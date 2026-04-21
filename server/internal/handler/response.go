@@ -9,6 +9,7 @@ type memoryResponse struct {
 	ID             string         `json:"id"`
 	Content        string         `json:"content"`
 	Type           memory.Type    `json:"type,omitempty"`
+	Kind           string         `json:"kind,omitempty"`
 	Kinds          []string       `json:"kinds,omitempty"`
 	Scope          memory.Scope   `json:"scope"`
 	State          memory.State   `json:"state"`
@@ -30,6 +31,16 @@ type listMemoriesResponse struct {
 	PageSize   int              `json:"page_size"`
 	Total      int64            `json:"total"`
 	TotalPages int              `json:"total_pages"`
+	HasMore    bool             `json:"has_more"`
+}
+
+type kindCountResponse struct {
+	Kind  string `json:"kind"`
+	Count int64  `json:"count"`
+}
+
+type listKindsResponse struct {
+	Items []kindCountResponse `json:"items"`
 }
 
 type ingestJobResponse struct {

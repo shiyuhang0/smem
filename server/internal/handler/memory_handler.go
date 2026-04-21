@@ -34,6 +34,7 @@ func NewMemoryHandler(memoryService *memory.Service, ingest ingestService, recal
 
 func (h *MemoryHandler) Register(group *gin.RouterGroup) {
 	group.POST("/memories", h.create)
+	group.GET("/memories/kinds", h.listKinds)
 	group.GET("/memories/:id", h.get)
 	group.PUT("/memories/:id", h.update)
 	group.DELETE("/memories/:id", h.delete)
@@ -125,6 +126,7 @@ func (h *MemoryHandler) list(c *gin.Context) {
 		Page:     page,
 		PageSize: pageSize,
 		Search:   c.Query("search"),
+		Kind:     c.Query("kind"),
 		State:    memory.State(c.Query("state")),
 		Type:     memory.Type(c.Query("type")),
 	})
@@ -144,7 +146,23 @@ func (h *MemoryHandler) list(c *gin.Context) {
 		PageSize:   pageSize,
 		Total:      total,
 		TotalPages: int(math.Ceil(float64(total) / float64(pageSize))),
+		HasMore:    int64(page*pageSize) < total,
 	})
+}
+
+func (h *MemoryHandler) listKinds(c *gin.Context) {
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+	items, err := h.memoryService.ListTopKinds(c.Request.Context(), limit)
+	if err != nil {
+		h.writeError(c, err)
+		return
+	}
+
+	response := make([]kindCountResponse, 0, len(items))
+	for _, item := range items {
+		response = append(response, kindCountResponse{Kind: item.Kind, Count: item.Count})
+	}
+	c.JSON(stdhttp.StatusOK, listKindsResponse{Items: response})
 }
 
 func (h *MemoryHandler) recallMemories(c *gin.Context) {
@@ -216,6 +234,7 @@ func toMemoryResponse(item memory.Memory) memoryResponse {
 		ID:             item.ID,
 		Content:        item.Content,
 		Type:           item.Type,
+		Kind:           item.Kind,
 		Kinds:          item.Kinds,
 		Scope:          item.Scope,
 		State:          item.State,

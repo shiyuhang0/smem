@@ -22,6 +22,7 @@ id,
 content,
 content_hash,
 type,
+kind,
 kinds,
 scope,
 state,
@@ -55,6 +56,7 @@ func (r *Repository) UpsertByContentHash(ctx context.Context, item memory.Memory
 		Columns: []clause.Column{{Name: "content_hash"}},
 		DoUpdates: clause.Assignments(map[string]any{
 			"embedding":   model.Embedding,
+			"kind":        model.Kind,
 			"state":       model.State,
 			"updated_at":  model.UpdatedAt,
 			"store_count": gorm.Expr("store_count + ?", item.StoreCount),
@@ -63,7 +65,7 @@ func (r *Repository) UpsertByContentHash(ctx context.Context, item memory.Memory
 	if err != nil {
 		return memory.Memory{}, err
 	}
-	return model.toDomain(), nil
+	return r.GetByContentHash(ctx, item.ContentHash)
 }
 
 func (r *Repository) Update(ctx context.Context, item memory.Memory) (memory.Memory, error) {
@@ -111,6 +113,38 @@ func (r *Repository) List(ctx context.Context, input memory.ListInput) ([]memory
 	}
 
 	return toDomainMemories(models), total, nil
+}
+
+func (r *Repository) ListTopKinds(ctx context.Context, limit int) ([]memory.KindCount, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+
+	type row struct {
+		Kind  string
+		Count int64
+	}
+
+	rows := make([]row, 0, limit)
+	err := r.db.WithContext(ctx).
+		Model(&MemoryModel{}).
+		Select("kind, COUNT(*) AS count").
+		Where("state = ?", string(memory.StateActive)).
+		Where("kind <> ''").
+		Group("kind").
+		Order("count DESC").
+		Order("kind ASC").
+		Limit(limit).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]memory.KindCount, 0, len(rows))
+	for _, item := range rows {
+		out = append(out, memory.KindCount{Kind: item.Kind, Count: item.Count})
+	}
+	return out, nil
 }
 
 func (r *Repository) Search(ctx context.Context, query string, limit int) ([]memory.Memory, error) {
@@ -196,6 +230,9 @@ func (r *Repository) buildListQuery(ctx context.Context, input memory.ListInput)
 	if input.Search != "" {
 		like := "%" + strings.TrimSpace(input.Search) + "%"
 		query = query.Where("content LIKE ?", like)
+	}
+	if input.Kind != "" {
+		query = query.Where("kind = ?", strings.TrimSpace(input.Kind))
 	}
 	if input.State != "" {
 		query = query.Where("state = ?", string(input.State))

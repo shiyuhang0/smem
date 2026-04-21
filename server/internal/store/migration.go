@@ -77,5 +77,7 @@ func splitSQLStatements(content string) []string {
 
 func isIgnorableMigrationError(err error) bool {
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "already exists") || strings.Contains(msg, "duplicate key name")
+	return strings.Contains(msg, "already exists") ||
+		strings.Contains(msg, "duplicate key name") ||
+		strings.Contains(msg, "duplicate column name")
 }

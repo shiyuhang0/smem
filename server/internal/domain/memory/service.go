@@ -50,7 +50,20 @@ func (s *Service) List(ctx context.Context, input ListInput) ([]Memory, int64, e
 	if input.PageSize < 1 || input.PageSize > 100 {
 		input.PageSize = 20
 	}
+	if input.State == "" {
+		input.State = StateActive
+	}
 	return s.repo.List(ctx, input)
+}
+
+func (s *Service) ListTopKinds(ctx context.Context, limit int) ([]KindCount, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	return s.repo.ListTopKinds(ctx, limit)
 }
 
 func (s *Service) applyUpdateInput(item Memory, input UpdateInput) (Memory, error) {

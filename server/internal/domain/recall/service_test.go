@@ -98,6 +98,10 @@ func (r *recallRepo) List(_ context.Context, _ memory.ListInput) ([]memory.Memor
 	panic("unused")
 }
 
+func (r *recallRepo) ListTopKinds(_ context.Context, _ int) ([]memory.KindCount, error) {
+	panic("unused")
+}
+
 func (r *recallRepo) Search(_ context.Context, _ string, _ int) ([]memory.Memory, error) {
 	panic("unused")
 }

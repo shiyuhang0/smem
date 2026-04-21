@@ -9,6 +9,7 @@ type Repository interface {
 	Delete(context.Context, string) error
 	GetByID(context.Context, string) (Memory, error)
 	List(context.Context, ListInput) ([]Memory, int64, error)
+	ListTopKinds(context.Context, int) ([]KindCount, error)
 	Search(context.Context, string, int) ([]Memory, error)
 	VectorSearch(context.Context, []float32, int) ([]RecallCandidate, error)
 	FullTextSearch(context.Context, string, int) ([]RecallCandidate, error)

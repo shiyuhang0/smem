@@ -8,6 +8,7 @@ type Memory struct {
 	Embedding      []float32
 	ContentHash    string
 	Type           Type
+	Kind           string
 	Kinds          []string
 	Scope          Scope
 	State          State
@@ -21,6 +22,13 @@ type Memory struct {
 	LastAccessedAt *time.Time
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+}
+
+func PrimaryKind(kinds []string) string {
+	if len(kinds) == 0 {
+		return ""
+	}
+	return kinds[0]
 }
 
 func (m Memory) Searchable() bool {
@@ -52,8 +60,14 @@ type ListInput struct {
 	Page     int
 	PageSize int
 	Search   string
+	Kind     string
 	State    State
 	Type     Type
+}
+
+type KindCount struct {
+	Kind  string
+	Count int64
 }
 
 type RecallInput struct {

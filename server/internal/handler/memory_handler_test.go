@@ -52,6 +52,7 @@ func TestMemoryHandlerGetExistingMemory(t *testing.T) {
 		ID:          "memory-1",
 		Content:     "remember this",
 		ContentHash: memory.HashContent("remember this"),
+		Kind:        "note",
 		Scope:       memory.ScopeUser,
 		State:       memory.StateActive,
 		Version:     1,
@@ -69,6 +70,7 @@ func TestMemoryHandlerGetExistingMemory(t *testing.T) {
 	r.ServeHTTP(getResp, getReq)
 	require.Equal(t, http.StatusOK, getResp.Code)
 	require.Contains(t, getResp.Body.String(), "remember this")
+	require.Contains(t, getResp.Body.String(), `"kind":"note"`)
 }
 
 func TestMemoryHandlerCreateReturnsInternalServerErrorForIngestFailure(t *testing.T) {
@@ -148,6 +150,10 @@ func (r *handlerRepo) List(_ context.Context, _ memory.ListInput) ([]memory.Memo
 		out = append(out, item)
 	}
 	return out, int64(len(out)), nil
+}
+
+func (r *handlerRepo) ListTopKinds(_ context.Context, _ int) ([]memory.KindCount, error) {
+	return nil, nil
 }
 
 func (r *handlerRepo) Search(_ context.Context, _ string, _ int) ([]memory.Memory, error) {
