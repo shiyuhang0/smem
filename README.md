@@ -3,7 +3,8 @@
 `smem` 是一个面向 Agent 的个人记忆系统项目，当前仓库包含：
 
 - `server/`: Go 服务端，负责 memory 存储、管理、搜索和召回
-- 预留：`plugin-openclaw` memory plugin、`dashboard`（尚未在仓库中创建目录）
+- `dashboard/`: React dashboard，用于搜索、浏览、查看和归档 memories
+- 预留：`plugin-openclaw` memory plugin
 
 ## 当前状态
 
@@ -36,4 +37,24 @@ human_doc/
 
 ## 当前优先级
 
-当前主要实现集中在 `server/`。plugin 与 dashboard 尚未进入功能开发阶段。
+当前主要实现集中在 `server/` 和 `dashboard/`，plugin 仍处于预留阶段。
+
+## Dashboard
+
+本地运行 dashboard：
+
+```bash
+cd dashboard
+npm install
+npm run dev
+```
+
+手动验证清单：
+
+1. 打开 dashboard，确认第一页 memories 正常加载。
+2. 输入关键词，确认列表按搜索词刷新。
+3. 切换 `kind`，确认卡片列表随筛选变化。
+4. 滚动到底部，确认下一页自动加载。
+5. 点开一条 memory，确认右侧详情抽屉展示完整内容和 metadata。
+6. 在详情抽屉点击归档，确认状态刷新为 `archived`。
+7. 暂时停掉服务端，确认列表或详情能显示错误和重试状态。

@@ -65,3 +65,9 @@
 ### 2026-04-21 16:00
 
 - server: 增加 kind 字段
+
+### 2026-04-21 19:00
+
+- dashboard: 设计并实现 dashboard。
+
+![dashboard](dashboard.png)

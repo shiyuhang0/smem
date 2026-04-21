@@ -8,3 +8,11 @@ server/smem-server
 
 # Temporary test binaries
 *.test
+
+# Dashboard frontend output
+dashboard/node_modules
+dashboard/dist
+
+# Dashboard frontend output
+dashboard/node_modules
+dashboard/dist
