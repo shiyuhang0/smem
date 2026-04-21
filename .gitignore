@@ -12,7 +12,5 @@ server/smem-server
 # Dashboard frontend output
 dashboard/node_modules
 dashboard/dist
-
-# Dashboard frontend output
-dashboard/node_modules
-dashboard/dist
+dashboard/vite.config.js
+dashboard/*.tsbuildinfo
