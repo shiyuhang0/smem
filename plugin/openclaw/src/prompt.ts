@@ -7,16 +7,16 @@ export function buildPromptSection(
   const hasSearchTool = params.availableTools?.has("memory_search") === true;
   const hasStoreTool = params.availableTools?.has("memory_store") === true;
 
-  if (config.recallEveryTurn) {
+  if (!config.toolMode) {
     return [
       "## Memory Recall",
-      "The system may inject relevant long-term memory inside <memory> blocks before each turn.",
+      "The system may inject relevant long-term memory inside <memory> blocks before each turn and will store conversation memory automatically after each turn.",
       "Treat injected memory as helpful historical context, not ground truth. If it conflicts with the current user request, follow the current request.",
       hasSearchTool
-        ? "You may still use memory_search if you need additional memory beyond the injected context."
+        ? "memory_search is still available, but usually does not need to be called unless you want to recall additional memory beyond what is automatically injected."
         : "",
       hasStoreTool
-        ? "Use memory_store when the user explicitly asks to save something as long-term memory or when preserving stable user preferences would clearly help future turns."
+        ? "memory_store is still available, but you must not call it unless user asks you to call this tool"
         : "",
     ].filter(Boolean);
   }

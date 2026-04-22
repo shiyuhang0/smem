@@ -1,10 +1,10 @@
-const DEFAULT_SERVER_URL = "http://localhost:5173";
+const DEFAULT_SERVER_URL = "http://localhost:8080";
 const DEFAULT_TOP_K = 5;
 const DEFAULT_TIMEOUT_MS = 8000;
 
 export type PluginConfig = {
   serverURL: string;
-  recallEveryTurn: boolean;
+  toolMode: boolean;
   topK: number;
   storeMode: "normal" | "smart";
   timeoutMs: number;
@@ -14,7 +14,7 @@ export function resolvePluginConfig(raw: unknown): PluginConfig {
   const value = isRecord(raw) ? raw : {};
   return {
     serverURL: typeof value.serverURL === "string" && value.serverURL.trim() ? value.serverURL.trim() : DEFAULT_SERVER_URL,
-    recallEveryTurn: value.recallEveryTurn === true,
+    toolMode: value.toolMode !== false,
     topK: clampInteger(value.topK, DEFAULT_TOP_K, 1, 10),
     storeMode: value.storeMode === "normal" ? "normal" : "smart",
     timeoutMs: clampInteger(value.timeoutMs, DEFAULT_TIMEOUT_MS, 1000, 120000),

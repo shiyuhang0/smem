@@ -4,37 +4,36 @@ OpenClaw memory plugin for `smem`.
 
 ## Features
 
-- Default recall mode is tool-driven via `memory_search`.
-- When `recallEveryTurn` is `true`, the plugin also performs hook-based recall in `before_prompt_build` and injects results inside `<memory>` blocks.
-- Store runs automatically on `agent_end`.
-- Provides `memory_store` for explicit long-term memory writes.
+- `toolMode=true` is the default, using `memory_search` and `memory_store` as the primary memory path.
+- `toolMode=false` switches to hook-based recall in `before_prompt_build` and automatic store on `agent_end`.
+- `memory_search` and `memory_store` are always registered in both modes.
 
 ## OpenClaw Integration
 
 - Declares `kind: "memory"` and occupies `plugins.slots.memory`.
 - Uses `registerMemoryCapability({ promptBuilder })` to inject static memory guidance.
 - Uses `registerTool(...)` to register `memory_search` and `memory_store`.
-- Uses `api.on("before_prompt_build", ...)` for optional hook-based recall injection.
-- Uses `api.on("agent_end", ...)` for automatic store.
+- Uses `api.on("before_prompt_build", ...)` for automatic hook-based recall when `toolMode` is `false`.
+- Uses `api.on("agent_end", ...)` for automatic hook-based store when `toolMode` is `false`.
 
 ## Tools
 
 ### `memory_search`
 
-- Default recall path.
+- Manual recall path.
 - Calls `POST /api/v1/memories/recall`.
 - Intended for prior preferences, decisions, facts, and running context.
 
 ### `memory_store`
 
-- Explicit store path.
+- Manual store path.
 - Calls `POST /api/v1/memories`.
 - Intended for cases where the user explicitly asks to save something or the model decides a stable preference/fact should be persisted.
 
 ## Config
 
 - `serverURL`: SMEM server base URL. Default: `http://localhost:5173`
-- `recallEveryTurn`: enable hook-based recall injection. Default: `false`
+- `toolMode`: when `true`, use tools as the default recall/store path. When `false`, use hook-based automatic recall/store. Default: `true`
 - `topK`: recall result count. Default: `5`
 - `storeMode`: `normal` or `smart`. Default: `smart`
 - `timeoutMs`: request timeout in milliseconds. Default: `8000`
@@ -53,7 +52,7 @@ OpenClaw memory plugin for `smem`.
         "enabled": true,
         "config": {
           "serverURL": "http://localhost:5173",
-          "recallEveryTurn": false,
+          "toolMode": true,
           "topK": 5,
           "storeMode": "smart",
           "timeoutMs": 8000
@@ -63,52 +62,6 @@ OpenClaw memory plugin for `smem`.
   }
 }
 ```
-
-## Local Development
-
-1. Install dependencies:
-
-```bash
-cd plugin/openclaw
-npm install
-```
-
-2. Verify the package:
-
-```bash
-npm run build
-npm run test
-```
-
-3. Load it in OpenClaw using a local path:
-
-```json
-{
-  "plugins": {
-    "enabled": true,
-    "load": {
-      "paths": ["/absolute/path/to/smem/plugin/openclaw"]
-    },
-    "slots": {
-      "memory": "smem-openclaw"
-    },
-    "entries": {
-      "smem-openclaw": {
-        "enabled": true,
-        "config": {
-          "serverURL": "http://localhost:5173",
-          "recallEveryTurn": false,
-          "topK": 5,
-          "storeMode": "smart",
-          "timeoutMs": 8000
-        }
-      }
-    }
-  }
-}
-```
-
-4. Restart OpenClaw Gateway after config changes.
 
 ## Publish And Install
 

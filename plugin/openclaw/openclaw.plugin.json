@@ -8,7 +8,7 @@
       "serverURL": {
         "type": "string"
       },
-      "recallEveryTurn": {
+      "toolMode": {
         "type": "boolean"
       },
       "topK": {
@@ -32,9 +32,9 @@
       "label": "Server URL",
       "placeholder": "http://localhost:5173"
     },
-    "recallEveryTurn": {
-      "label": "Hook-based Recall",
-      "help": "Enable automatic recall injection on every turn. Disabled means tool-driven recall by default."
+    "toolMode": {
+      "label": "Tool Mode",
+      "help": "Enabled uses memory_search and memory_store as the default path. Disabled switches to hook-based automatic recall and store each turn."
     },
     "topK": {
       "label": "Recall Top K"

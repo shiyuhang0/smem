@@ -11,6 +11,8 @@ import (
 
 var embeddingPattern = regexp.MustCompile(`\[-?\d+\.?\d*(e[+-]?\d+)?(,-?\d+\.?\d*(e[+-]?\d+)?){10,}\]`)
 
+const disableSQLWhenNoError = true
+
 type FilteringLogger struct {
 	underlying logger.Interface
 	logReads   bool
@@ -39,6 +41,9 @@ func (l *FilteringLogger) Error(ctx context.Context, msg string, args ...interfa
 func (l *FilteringLogger) Trace(ctx context.Context, begin time.Time, fc func() (sql string, rowsAffected int64), err error) {
 	if !l.logReads && err == nil {
 		sql, _ := fc()
+		if disableSQLWhenNoError {
+			return
+		}
 		if isReadQuery(sql) {
 			return
 		}

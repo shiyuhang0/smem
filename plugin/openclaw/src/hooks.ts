@@ -6,7 +6,7 @@ import { extractRecallQuery, extractStoreContent, formatRecallItems } from "./te
 export function registerPluginHooks(api: any) {
   api.on("before_prompt_build", async (event: any, ctx: any) => {
     const config = resolvePluginConfig(api.pluginConfig);
-    if (!config.recallEveryTurn) {
+    if (config.toolMode) {
       return;
     }
 
@@ -32,6 +32,11 @@ export function registerPluginHooks(api: any) {
   });
 
   api.on("agent_end", async (event: any, ctx: any) => {
+    const config = resolvePluginConfig(api.pluginConfig);
+    if (config.toolMode) {
+      return;
+    }
+
     if (event?.success === false) {
       return;
     }
@@ -42,11 +47,7 @@ export function registerPluginHooks(api: any) {
     if (!content) {
       return;
     }
-
-    api.logger?.info?.(
-        `[smem-openclaw] message: ${event.messages} `
-      );
-
+    
     api.logger?.info?.(
         `[smem-openclaw] store content: ${content} `
       );
