@@ -30,7 +30,7 @@
   "uiHints": {
     "serverURL": {
       "label": "Server URL",
-      "placeholder": "http://localhost:5173"
+      "placeholder": "http://localhost:8080"
     },
     "toolMode": {
       "label": "Tool Mode",

@@ -1,6 +1,6 @@
 {
-  "name": "smem-openclaw",
-  "private": true,
+  "name": "@shiyuhang0/smem-openclaw",
+  "private": false,
   "version": "0.1.0",
   "type": "module",
   "files": [

@@ -75,3 +75,8 @@
 ### 2026-04-21 21:00
 
 - server: 优化日志
+
+### 2026-04-22
+
+- plugin: 实现 OpenClaw plugin，替换 OpenClaw 内置 memory 插件。
+- plugin: 实现 tool-driven 和 hook-based 两种 recall/store 模式。

@@ -32,7 +32,7 @@ OpenClaw memory plugin for `smem`.
 
 ## Config
 
-- `serverURL`: SMEM server base URL. Default: `http://localhost:5173`
+- `serverURL`: SMEM server base URL. Default: `http://localhost:8080`
 - `toolMode`: when `true`, use tools as the default recall/store path. When `false`, use hook-based automatic recall/store. Default: `true`
 - `topK`: recall result count. Default: `5`
 - `storeMode`: `normal` or `smart`. Default: `smart`
@@ -51,7 +51,7 @@ OpenClaw memory plugin for `smem`.
       "smem-openclaw": {
         "enabled": true,
         "config": {
-          "serverURL": "http://localhost:5173",
+          "serverURL": "http://localhost:8080",
           "toolMode": true,
           "topK": 5,
           "storeMode": "smart",
@@ -65,7 +65,15 @@ OpenClaw memory plugin for `smem`.
 
 ## Publish And Install
 
-### Option 1: Local install into OpenClaw
+### Option 1: Install from npm
+
+```bash
+openclaw plugins install @shiyuhang0/smem-openclaw
+```
+
+Then enable it in OpenClaw config and assign the `memory` slot to `smem-openclaw`.
+
+### Option 2: Local install into OpenClaw
 
 Use OpenClaw's local plugin install flow:
 
@@ -96,7 +104,7 @@ Then set:
 }
 ```
 
-### Option 2: Publish to npm
+### Option 3: Publish to npm
 
 1. Update `package.json` before publishing:
    - choose the final package name
