@@ -1,0 +1,50 @@
+{
+  "id": "smem-openclaw",
+  "kind": "memory",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "serverURL": {
+        "type": "string"
+      },
+      "recallEveryTurn": {
+        "type": "boolean"
+      },
+      "topK": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10
+      },
+      "storeMode": {
+        "type": "string",
+        "enum": ["normal", "smart"]
+      },
+      "timeoutMs": {
+        "type": "integer",
+        "minimum": 1000,
+        "maximum": 120000
+      }
+    }
+  },
+  "uiHints": {
+    "serverURL": {
+      "label": "Server URL",
+      "placeholder": "http://localhost:5173"
+    },
+    "recallEveryTurn": {
+      "label": "Hook-based Recall",
+      "help": "Enable automatic recall injection on every turn. Disabled means tool-driven recall by default."
+    },
+    "topK": {
+      "label": "Recall Top K"
+    },
+    "storeMode": {
+      "label": "Store Mode"
+    },
+    "timeoutMs": {
+      "label": "Timeout (ms)",
+      "advanced": true
+    }
+  }
+}

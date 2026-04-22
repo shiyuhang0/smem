@@ -14,3 +14,7 @@ dashboard/node_modules
 dashboard/dist
 dashboard/vite.config.js
 dashboard/*.tsbuildinfo
+
+# OpenClaw plugin local artifacts
+plugin/openclaw/node_modules
+plugin/openclaw/*.tsbuildinfo

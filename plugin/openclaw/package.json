@@ -1,0 +1,30 @@
+{
+  "name": "smem-openclaw",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "files": [
+    "index.ts",
+    "openclaw.plugin.json",
+    "src",
+    "README.md"
+  ],
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.41"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

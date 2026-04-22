@@ -169,7 +169,7 @@ func (w *JobWorker) extractCandidates(ctx context.Context, job ingestjob.Job) ([
 	if err != nil {
 		return nil, err
 	}
-	ingestLogger.Printf("smart_extract_llm_response job_id=%s raw=%s", job.ID, raw)
+	ingestLogger.Printf("smart_extract_llm_response job_id=%s content=%s resp=%s", job.ID, job.Content, raw)
 	extracted, err := parseExtractionPayload(raw)
 	if err != nil {
 		return nil, err
