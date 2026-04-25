@@ -2,24 +2,21 @@
 
 `smem` 是一个面向 agent 的长期记忆系统。
 
-它面向个人部署，而不是托管式 SaaS。因此你可以完全掌控自己的数据和基础设施。你可以把服务运行在本地机器、私有云，或者任意你选择的托管环境中。
+它面向个人部署，而不是托管式 SaaS。你可以完全掌控自己的数据与基础设施，并将服务运行在本地机器、私有云，或任意你选择的托管环境中。
 
-- 使用你自己的数据库、LLM、embedding 服务和 agent runtime。
-- 通过 memory server 持久化并管理长期记忆。
-- 在 dashboard 中查看、搜索和归档记忆。
-
-`smem` 聚焦完整的记忆流水线：记忆提取、去重、融合、召回和 agent 集成。
+`smem` 聚焦完整的记忆流水线：记忆提取、去重、融合、召回，以及与 agent 的集成。持久化并管理长期记忆。
 
 ## 核心能力
 
-- 异步提取：不阻塞主 agent 路径。
-- 智能融合：基于 LLM 的记忆融合，支持创建、更新、删除和强化记忆。
-- 精确召回
+- 安全：使用你自己的数据库、LLM、embedding 服务和 agent runtime
+- 异步提取：不阻塞主 agent 路径
+- 智能融合：基于 LLM 的记忆融合，支持创建、更新、删除和强化记忆
+- 精确召回：
   - 粗排：vector search + full-text search + 可选 RRF
   - 精排：bge-rerank + 多维度打分
-  - [可选]发散思维机制：softmax + temperature 的概率式召回选取，避免过度集中在少数记忆上。
-- dashboard 用于浏览、搜索、过滤和归档记忆。
-- openclaw 插件支持：提供基于 tool 和基于 hook 的两种集成模式。
+  - 可选发散机制：基于 softmax + temperature 的概率式召回，避免结果过度集中在少数记忆上
+- Dashboard：用于浏览、搜索、过滤和归档记忆
+- OpenClaw 插件：同时支持基于 tool 和基于 hook 的两种集成模式
 
 ## 快速开始
 
@@ -28,19 +25,19 @@
 前置条件：
 
 - Go `1.25+`
-- TiDB Cloud 或其他兼容 MySQL 的数据库，需要支持 `VECTOR` 和 `FULLTEXT` 。
+- TiDB Cloud 支持 `VECTOR` 和 `FULLTEXT`
 - 一个兼容 OpenAI 的 chat model API
 - 一个 embedding API（`openai` 或 `ollama`）
 
-创建配置：
+复制配置文件：
 
 ```bash
 cp server/config.yaml.example server/config.yaml
 ```
 
-编辑 `server/config.yaml`，填入你的数据库和模型配置。最简 example
+编辑 `server/config.yaml`，填入数据库和模型配置。最小示例如下：
 
-```
+```yaml
 db_dsn: "user:password@tcp(host:4000)/smem"
 db_tls_server_name: "<db host>"
 
@@ -59,8 +56,7 @@ embedding_api_key: "your-api-key"
 embedding_model: "text-embedding-3-small"
 ```
 
-
-然后运行：
+启动服务：
 
 ```bash
 cd server
@@ -69,13 +65,13 @@ go run ./cmd/smem-server
 
 ### 2. 安装 OpenClaw 插件
 
-通过 npm 快速安装：
+通过 npm 安装：
 
 ```bash
 openclaw plugins install @shiyuhang0/smem-openclaw
 ```
 
-OpenClaw 配置会自动配置
+OpenClaw 会自动写入类似如下的配置：
 
 ```json
 {
@@ -93,78 +89,89 @@ OpenClaw 配置会自动配置
 }
 ```
 
-插件或配置变更后，重启 OpenClaw。
+插件安装完成或配置变更后，重启 OpenClaw。
 
 ## 架构
 
 `smem` 采用 client + server 架构。
-
-- `server/`：Go 服务
-- `plugin/openclaw/`：使用 TypeScript 实现的 OpenClaw memory 插件
-- `dashboard/`：基于 React 的 memory dashboard
+- 服务端：记忆管理，记忆提取，记忆召回
+- client: 目前支持 openclaw plugin
 
 ```text
-用户 / Agent
-    |
-    v
-OpenClaw + smem-openclaw plugin
-    |
-    v
-smem server
-    |
-    v
-TiDB Cloud + LLM + embedding provider
++-----------------------------+        HTTP API        +-----------------------------+        HTTP API        +----------------------+
+| Agent Runtime               | <-------------------> | smem server                 | <-------------------> | dashboard            |
+| (with smem client plugin)   |                       |                             |                       |                      |
+|                             |                       | - 记忆提取                  |                       | - 查看记忆           |
+| - 发起 recall/store         |                       | - 去重与融合                |                       | - 搜索 / 过滤        |
+| - 调用 CRUD                 |                       | - 检索与 rerank             |                       | - 归档管理           |
++-----------------------------+                       | - 持久化与归档              |                       +----------------------+
+                                                      +-------------+---------------+
+                                                                    |
+                                                                    v
+                                              +-----------------------------------------+
+                                              | TiDB Cloud + LLM + Embedding provider   |
+                                              +-----------------------------------------+
 ```
 
-## 亮点
+## 工作方式
 
 ### 异步 Ingest
 
-所有记忆写入都会经过异步 ingest job 流水线。
+所有记忆写入都会进入异步 ingest job 流水线。
 
 - `POST /api/v1/memories` 会立即返回 `202 Accepted`
-- 后台 worker 会带重试地安全处理任务
+- 后台 worker 会在带重试机制的情况下安全处理任务
 - 失败不会阻塞主 agent 路径
 - 任务可以跨重启恢复
 
 ### Smart Ingest
 
-提供 `normal` 和 `smart` 两种 ingest 模式。smart 模式下：
+`smem` 提供 `normal` 和 `smart` 两种 ingest 模式。`smart` 模式下会：
 
 - 从输入中提取至多 5 条原子化候选记忆
 - 基于候选记忆召回相关的已有记忆
-- 基于 LLM 进行记忆融合
+- 基于 LLM 执行记忆融合，例如：
+  - 无用记忆：忽略
   - 新记忆：创建
-  - 冲突记忆：创建新建议，删除老记忆
-  - 记忆补充：补充老记忆
-  - 相同记忆：强化老记忆
-  - ...
+  - 冲突记忆：创建新建议并删除旧记忆
+  - 记忆补充：补充旧记忆
+  - 相同记忆：强化旧记忆，增加记忆次数 （content hash 去重）
 
 ### 精确召回
 
-- vector search 捕获语义相似性 + full-text search 捕获词面匹配 
-- 可选 RRF：固定取 topk，剩下的进行 RRF 融合，兼顾单路保护和共识融合。k 值按数据量动态调整，保证选出共识记忆。 
-- bge-rerank + 多维度打分: bge-rerank 分数为主，过滤低分。以 0.1 的权重 boost 其他维度：
-  - 如时间（近期优先）：7天半衰期
-  - 存储次数（多次记忆优先）
-  - 类型
-  - .。。
-- 引入思维发散机制：Softmax 的概率式选择，以支持更有多样性的召回。调整 temperature 可以控制发散程度。
+> 无大模型调用，秒级召回
 
-这让 `smem` 再精确召回“相似”记忆的基础上，更有机会返回在实际使用中“更有用”的记忆。
+- `vector search` 捕获语义相似性，`full-text search` 捕获词面匹配
+- 可选 RRF：固定保留部分 top-k 结果，其余结果做 RRF 融合，兼顾单路保护与共识融合。`k` 值会按数据量动态调整
+- `bge-rerank` + 多维度打分：以 rerank 分数为主，过滤低分结果，并以 `0.1` 的权重对其他维度做 boost，例如：
+  - 时间（近期优先，7 天半衰期）：rerank 得分接近时，近期内容优先
+  - 存储次数（多次记忆优先）：rerank 得分接近时，多次记忆优先。比如：我爱吃饭，我爱吃面（多次记忆），爱吃面优先召回
+  - 类型
+- 可选发散机制：通过 softmax 概率式选择，让召回结果更有多样性；`temperature` 用于控制发散程度
+
+这让 `smem` 不仅能更精确地召回“相似”记忆，也更有机会返回在真实使用中“更有用”的记忆。
 
 ### OpenClaw Tool Mode 与 Auto Mode
 
-OpenClaw 插件支持两种集成方式。
+OpenClaw 插件可以替换 OpenClaw 的 `memory` slot，并接管记忆相关能力。
 
-- `toolMode=true`：推荐默认值。模型以显式工具方式使用 `memory_search` 和 `memory_store`。
-- `toolMode=false`：基于 hook 的自动模式。recall 在构建 prompt 前执行，store 在 `agent_end` 时执行。
+- 提供 `memory_search`、`memory_store` 等 tool。
+- 支持两种集成方式：
+  - `toolMode=true`：推荐默认值。模型以显式工具方式使用 `memory_search` 和 `memory_store`。system prompt 中会注入 guidance，引导模型在合适的时候主动调用这些工具。
+  - `toolMode=false`：基于 hook 的自动模式。recall 在构建 prompt 前执行，store 在 `agent_end` 时执行。system prompt 会引导模型尽量不要主动调用工具，而是依赖自动 recall/store。自动模式下，召回内容会额外包裹在 `<memory>` 块中；在提取记忆时会移除该块，避免重复存储。
+- 降级行为：recall 和 store 失败时都会静默降级，不影响主链路。
 
-无论哪种模式，插件会占用 OpenClaw 的 `memory` 插槽，并把当前活跃的 memory 路径替换为 `smem`。注意创建会修改 system prompt 增加 memory guidance。
+核心 inject point：
+
+- `memory` slot 机制：通过 `kind: "memory"` 接入 OpenClaw 的排他 memory 插件体系，由 `plugins.slots.memory = "smem-openclaw"` 激活。
+- `registerMemoryCapability({ promptBuilder })`：向 system prompt 注入静态 memory guidance，指导模型如何使用 memory。
+- `registerTool`：注册 `memory_search` 和 `memory_store` tool。
+- `api.on("before_prompt_build", ...)`：在每轮对话构建 prompt 前执行 recall，并注入召回内容。
+- `api.on("agent_end", ...)`：在 agent 执行结束时触发 store。
 
 ### Dashboard
 
-dashboard 让你可以直接看到 agent 记住了什么。
+Dashboard 让你可以直接看到 agent 记住了什么。
 
 - 查看记忆元数据和详情
 - 归档记忆，而不是盲目删除历史
@@ -221,28 +228,29 @@ embedding_dim: 1536
 
 插件支持以下配置项：
 
-```
-    "entries": {
-      "smem-openclaw": {
-        "enabled": true
-         "config": {
-           "serverURL": "http://localhost:8080",
-           "toolMode": true,
-           "topK": 5,
-           "storeMode": "smart",
-           "timeoutMs": 8000
-         }
+```json
+{
+  "entries": {
+    "smem-openclaw": {
+      "enabled": true,
+      "config": {
+        "serverURL": "http://localhost:8080",
+        "toolMode": true,
+        "topK": 5,
+        "storeMode": "smart",
+        "timeoutMs": 8000
       }
     }
-
+  }
+}
 ```
 
-- toolMode=true：推荐默认值。模型以显式工具方式使用 memory_search 和 memory_store
-- toolMode=false：基于 hook 的自动模式。每轮对话都会召回记忆，存储记忆。
-- `serverURL`：SMEM server base URL。默认：`http://localhost:8080`
-- `topK`：召回结果数量。默认：`5`
-- `storeMode`：`normal` 或 `smart`。默认：`smart`
-- `timeoutMs`：请求超时时间，单位毫秒。默认：`8000`
+- `toolMode=true`：推荐默认值。模型以显式工具方式使用 `memory_search` 和 `memory_store`
+- `toolMode=false`：基于 hook 的自动模式。每轮对话都会召回并存储记忆
+- `serverURL`：SMEM server base URL，默认 `http://localhost:8080`
+- `topK`：召回结果数量，默认 `5`
+- `storeMode`：`normal` 或 `smart`，默认 `smart`
+- `timeoutMs`：请求超时时间，单位毫秒，默认 `8000`
 
 ## 延伸阅读
 
