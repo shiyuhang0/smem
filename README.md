@@ -1,50 +1,45 @@
 # SMEM
 
-[中文文档](./README.zh-CN.md)
+[English](./README.en.md)
 
-`smem` is a long-term memory system for agents.
+`smem` 是一个面向 agent 的长期记忆系统。
 
-It is designed for self-hosting rather than as a managed SaaS product. You keep full control over your data and infrastructure, and can run it on your local machine, private cloud, or any hosting environment you choose.
+它面向个人部署，而不是托管式 SaaS。你可以完全掌控自己的数据与基础设施，并将服务运行在本地机器、私有云，或任意你选择的托管环境中。
 
-`smem` focuses on the full memory pipeline: memory extraction, deduplication, consolidation, retrieval, and agent integration.
+`smem` 聚焦完整的记忆流水线：记忆提取、去重、融合、召回，以及与 agent 的集成。持久化并管理长期记忆。
 
 ![dashboard](./doc/dashboard.png)
 
-## What It's For
+## 核心能力
 
-- Use your own database, LLM, embedding service, and agent runtime
-- Persist and manage long-term memory through the memory server
-- View, search, filter, and archive memories in the dashboard
+- 安全：使用你自己的数据库、LLM、embedding 服务和 agent runtime
+- 异步提取：不阻塞主 agent 路径
+- 智能融合：基于 LLM 的记忆融合，支持创建、更新、删除和强化记忆
+- 精确召回：
+  - 粗排：vector search + full-text search + 可选 RRF
+  - 精排：bge-rerank + 多维度打分
+  - 可选发散机制：基于 softmax + temperature 的概率式召回，避免结果过度集中在少数记忆上
+- Dashboard：用于浏览、搜索、过滤和归档记忆
+- OpenClaw 插件：同时支持基于 tool 和基于 hook 的两种集成模式
 
-## Core Capabilities
+## 快速开始
 
-- Asynchronous extraction: does not block the main agent path
-- Smart consolidation: LLM-based memory merging with support for creating, updating, deleting, and reinforcing memories
-- Precise retrieval:
-  - Initial retrieval: vector search + full-text search + optional RRF
-  - Reranking: bge-rerank + multi-factor scoring
-  - Optional diversification: probabilistic retrieval based on softmax + temperature to avoid over-concentrating on a small set of memories
-- Dashboard: browse, search, filter, and archive memories
-- OpenClaw plugin: supports both tool-based and hook-based integration modes
+### 1. 启动服务端
 
-## Quick Start
-
-### 1. Start the Server
-
-Prerequisites:
+前置条件：
 
 - Go `1.25+`
-- TiDB Cloud or another MySQL-compatible database with `VECTOR` and `FULLTEXT` support
-- An OpenAI-compatible chat model API
-- An embedding API (`openai` or `ollama`)
+- TiDB Cloud 支持 `VECTOR` 和 `FULLTEXT`
+- 一个兼容 OpenAI 的 chat model API
+- 一个 embedding API（`openai` 或 `ollama`）
 
-Copy the config file:
+复制配置文件：
 
 ```bash
 cp server/config.yaml.example server/config.yaml
 ```
 
-Edit `server/config.yaml` and fill in your database and model settings. A minimal example:
+编辑 `server/config.yaml`，填入数据库和模型配置。最小示例如下：
 
 ```yaml
 db_dsn: "user:password@tcp(host:4000)/smem"
@@ -65,22 +60,22 @@ embedding_api_key: "your-api-key"
 embedding_model: "text-embedding-3-small"
 ```
 
-Start the server:
+启动服务：
 
 ```bash
 cd server
 go run ./cmd/smem-server
 ```
 
-### 2. Install the OpenClaw Plugin
+### 2. 安装 OpenClaw 插件
 
-Install it with npm:
+通过 npm 安装：
 
 ```bash
 openclaw plugins install @shiyuhang0/smem-openclaw
 ```
 
-OpenClaw will automatically write a config similar to:
+OpenClaw 会自动写入类似如下的配置：
 
 ```json
 {
@@ -98,30 +93,22 @@ OpenClaw will automatically write a config similar to:
 }
 ```
 
-Restart OpenClaw after installation or any config change.
+插件安装完成或配置变更后，重启 OpenClaw。
 
-## Architecture
+## 架构
 
-`smem` uses a client + server architecture.
-
-The client is injected into the agent as a plugin, with responsibilities cleanly separated:
-
-- The server focuses on memory processing
-- The client is responsible for calling memory CRUD APIs
-- Client support currently includes the OpenClaw plugin
-
-- `server/`: Go service
-- `plugin/openclaw/`: OpenClaw memory plugin implemented in TypeScript
-- `dashboard/`: React-based memory dashboard
+`smem` 采用 client + server 架构。
+- 服务端：记忆管理，记忆提取，记忆召回
+- client: 目前支持 openclaw plugin
 
 ```text
 +-----------------------------+        HTTP API        +-----------------------------+        HTTP API        +----------------------+
 | Agent Runtime               | <-------------------> | smem server                 | <-------------------> | dashboard            |
 | (with smem client plugin)   |                       |                             |                       |                      |
-|                             |                       | - memory extraction         |                       | - inspect memories   |
-| - trigger recall/store      |                       | - dedup/consolidation       |                       | - search / filter    |
-| - call CRUD APIs            |                       | - retrieval / rerank        |                       | - archive management |
-+-----------------------------+                       | - persistence / archive     |                       +----------------------+
+|                             |                       | - 记忆提取                  |                       | - 查看记忆           |
+| - 发起 recall/store         |                       | - 去重与融合                |                       | - 搜索 / 过滤        |
+| - 调用 CRUD                 |                       | - 检索与 rerank             |                       | - 归档管理           |
++-----------------------------+                       | - 持久化与归档              |                       +----------------------+
                                                       +-------------+---------------+
                                                                     |
                                                                     v
@@ -130,9 +117,11 @@ The client is injected into the agent as a plugin, with responsibilities cleanly
                                               +-----------------------------------------+
 ```
 
-## How It Works
+## 工作方式
 
-### Memory Classification
+### Memory 分类
+
+纵向+横向分类（type + kind）
 
 type:
 - `fact`：事实。
@@ -150,89 +139,92 @@ kind:
 - `decision`
 - ...
 
-### Async Ingest
+### 异步 Ingest
 
-All memory writes go through an asynchronous ingest job pipeline.
+所有记忆写入都会进入异步 ingest job 流水线。
 
-- `POST /api/v1/memories` returns `202 Accepted` immediately
-- Background workers process jobs safely with retries
-- Failures do not block the main agent path
-- Jobs can recover across restarts
+- `POST /api/v1/memories` 会立即返回 `202 Accepted`
+- 后台 worker 会在带重试机制的情况下安全处理任务
+- 失败不会阻塞主 agent 路径
+- 任务可以跨重启恢复
 
 ### Smart Ingest
 
-`smem` provides two ingest modes: `normal` and `smart`. In `smart` mode it will:
+`smem` 提供 `normal` 和 `smart` 两种 ingest 模式。`smart` 模式下会：
 
-- Extract up to 5 atomic candidate memories from the input
-- Retrieve related existing memories based on those candidates
-- Use an LLM to consolidate memories, for example:
-  - New memory: create
-  - Conflicting memory: create a new suggestion and delete the old memory
-  - Memory enrichment: update and extend the old memory
-  - Identical memory: reinforce the old memory
+- 从输入中提取至多 5 条原子化候选记忆
+- 基于候选记忆召回相关的已有记忆
+- 基于 LLM 执行记忆融合，例如：
+  - 无用记忆：忽略
+  - 新记忆：创建
+  - 冲突记忆：创建新建议并删除旧记忆
+  - 记忆补充：补充旧记忆
+  - 相同记忆：强化旧记忆，增加记忆次数 （content hash 去重）
 
-### Precise Retrieval
+### 精确召回
 
-- `vector search` captures semantic similarity, while `full-text search` captures lexical matches
-- Optional RRF: keep a fixed subset of top-k results, then apply RRF to the remaining candidates to balance single-source protection and consensus fusion. The `k` value is adjusted dynamically based on data size
-- `bge-rerank` + multi-factor scoring: rerank score is primary, low-score results are filtered out, and other factors receive a `0.1` weight boost, such as:
-  - Time (recent memories preferred, with a 7-day half-life)
-  - Storage count (memories seen more often are preferred)
-  - Type
-- Optional diversification: use softmax-based probabilistic selection to increase result diversity, with `temperature` controlling the degree of diversification
+> 无大模型调用，秒级召回
 
-This allows `smem` not only to retrieve memories that are more precisely “similar”, but also to return memories that are more practically “useful” in real usage.
+- `vector search` 捕获语义相似性，`full-text search` 捕获词面匹配
+- 可选 RRF：固定保留部分 top-k 结果，其余结果做 RRF 融合，兼顾单路保护与共识融合。`k` 值会按数据量动态调整
+- `bge-rerank` + 多维度打分：以 rerank 分数为主，过滤低分结果，并以 `0.1` 的权重对其他维度做 boost，例如：
+  - 时间（近期优先，7 天半衰期）：rerank 得分接近时，近期内容优先
+  - 存储次数（多次记忆优先）：rerank 得分接近时，多次记忆优先。比如：我爱吃饭，我爱吃面（多次记忆），爱吃面优先召回
+  - 类型
+- 可选发散机制：通过 softmax 概率式选择，让召回结果更有多样性；`temperature` 用于控制发散程度
 
-### OpenClaw Tool Mode and Auto Mode
+这让 `smem` 不仅能更精确地召回“相似”记忆，也更有机会返回在真实使用中“更有用”的记忆。
 
-The OpenClaw plugin can replace OpenClaw's `memory` slot and take over memory-related capabilities.
+### OpenClaw Tool Mode 与 Auto Mode
 
-- It provides tools such as `memory_search` and `memory_store`.
-- It supports two integration modes:
-  - `toolMode=true`: recommended default. The model uses `memory_search` and `memory_store` explicitly as tools. Guidance is injected into the system prompt to help the model call these tools when appropriate.
-  - `toolMode=false`: hook-based automatic mode. Recall runs before prompt construction, and storage runs at `agent_end`. The system prompt encourages the model not to call tools proactively, but to rely on automatic recall/store instead. In automatic mode, recalled content is wrapped in a `<memory>` block, and that block is removed during memory extraction to avoid duplicate storage.
-- Degradation behavior: both recall and store fail silently and do not affect the main execution path.
+OpenClaw 插件可以替换 OpenClaw 的 `memory` slot，并接管记忆相关能力。
 
-Core inject points:
+- 提供 `memory_search`、`memory_store` 等 tool。
+- 支持两种集成方式：
+  - `toolMode=true`：推荐默认值。模型以显式工具方式使用 `memory_search` 和 `memory_store`。system prompt 中会注入 guidance，引导模型在合适的时候主动调用这些工具。
+  - `toolMode=false`：基于 hook 的自动模式。recall 在构建 prompt 前执行，store 在 `agent_end` 时执行。system prompt 会引导模型尽量不要主动调用工具，而是依赖自动 recall/store。自动模式下，召回内容会额外包裹在 `<memory>` 块中；在提取记忆时会移除该块，避免重复存储。
+- 降级行为：recall 和 store 失败时都会静默降级，不影响主链路。
 
-- `memory` slot mechanism: integrates with OpenClaw's exclusive memory plugin system through `kind: "memory"`, and is activated by `plugins.slots.memory = "smem-openclaw"`.
-- `registerMemoryCapability({ promptBuilder })`: injects static memory guidance into the system prompt to guide the model in using memory.
-- `registerTool`: registers the `memory_search` and `memory_store` tools.
-- `api.on("before_prompt_build", ...)`: performs recall before each prompt is built and injects the recalled content.
-- `api.on("agent_end", ...)`: triggers storage when the agent run ends.
+核心 inject point：
+
+- `memory` slot 机制：通过 `kind: "memory"` 接入 OpenClaw 的排他 memory 插件体系，由 `plugins.slots.memory = "smem-openclaw"` 激活。
+- `registerMemoryCapability({ promptBuilder })`：向 system prompt 注入静态 memory guidance，指导模型如何使用 memory。
+- `registerTool`：注册 `memory_search` 和 `memory_store` tool。
+- `api.on("before_prompt_build", ...)`：在每轮对话构建 prompt 前执行 recall，并注入召回内容。
+- `api.on("agent_end", ...)`：在 agent 执行结束时触发 store。
 
 ### Dashboard
 
-The dashboard lets you directly inspect what the agent has remembered.
+Dashboard 让你可以直接看到 agent 记住了什么。
 
-- View memory metadata and details
-- Archive memories instead of blindly deleting history
+- 查看记忆元数据和详情
+- 归档记忆，而不是盲目删除历史
 
-## Configuration
+## 配置
 
 ### Server
 
-The main server config lives in `server/config.yaml`.
+服务端主配置位于 `server/config.yaml`。
 
-Key fields:
+关键字段：
 
-- `server_addr`: HTTP listen address, default `:8080`
-- `db_dsn`: TiDB connection string
-- `db_tls_server_name`: TiDB TLS server name when TLS is enabled
-- `openai_base_url`: chat model base URL
-- `openai_api_key`: chat model API key
-- `openai_chat_model`: chat model name
-- `rerank_provider`: currently only `siliconflow` is supported
-- `rerank_base_url`: rerank endpoint base URL
-- `rerank_api_key`: rerank API key
-- `rerank_model`: rerank model name
-- `embedding_provider`: `openai` or `ollama`
-- `embedding_base_url`: embedding endpoint base URL
-- `embedding_api_key`: embedding API key
-- `embedding_model`: embedding model name
-- `embedding_dim`: embedding dimension
+- `server_addr`：HTTP 监听地址，默认 `:8080`
+- `db_dsn`：TiDB 连接串
+- `db_tls_server_name`：启用 TLS 时的 TiDB TLS server name
+- `openai_base_url`：chat model base URL
+- `openai_api_key`：chat model API key
+- `openai_chat_model`：chat model 名称
+- `rerank_provider`：当前仅支持 `siliconflow`
+- `rerank_base_url`：rerank endpoint base URL
+- `rerank_api_key`：rerank API key
+- `rerank_model`：rerank model 名称
+- `embedding_provider`：`openai` 或 `ollama`
+- `embedding_base_url`：embedding endpoint base URL
+- `embedding_api_key`：embedding API key
+- `embedding_model`：embedding model 名称
+- `embedding_dim`：embedding 维度
 
-Example:
+示例：
 
 ```yaml
 server_addr: ":8080"
@@ -256,9 +248,9 @@ embedding_model: "text-embedding-3-small"
 embedding_dim: 1536
 ```
 
-### OpenClaw Plugin
+### OpenClaw 插件
 
-The plugin supports the following configuration:
+插件支持以下配置项：
 
 ```json
 {
@@ -277,14 +269,14 @@ The plugin supports the following configuration:
 }
 ```
 
-- `toolMode=true`: recommended default. The model uses `memory_search` and `memory_store` explicitly as tools
-- `toolMode=false`: hook-based automatic mode. Each conversation round performs both retrieval and storage
-- `serverURL`: SMEM server base URL, default `http://localhost:8080`
-- `topK`: number of retrieval results, default `5`
-- `storeMode`: `normal` or `smart`, default `smart`
-- `timeoutMs`: request timeout in milliseconds, default `8000`
+- `toolMode=true`：推荐默认值。模型以显式工具方式使用 `memory_search` 和 `memory_store`
+- `toolMode=false`：基于 hook 的自动模式。每轮对话都会召回并存储记忆
+- `serverURL`：SMEM server base URL，默认 `http://localhost:8080`
+- `topK`：召回结果数量，默认 `5`
+- `storeMode`：`normal` 或 `smart`，默认 `smart`
+- `timeoutMs`：请求超时时间，单位毫秒，默认 `8000`
 
-## Further Reading
+## 延伸阅读
 
 - [`server/README.md`](./server/README.md)
 - [`plugin/openclaw/README.md`](./plugin/openclaw/README.md)
