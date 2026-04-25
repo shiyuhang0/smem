@@ -6,6 +6,8 @@
 
 `smem` 聚焦完整的记忆流水线：记忆提取、去重、融合、召回，以及与 agent 的集成。持久化并管理长期记忆。
 
+![dashboard](../doc/dashboard.png)
+
 ## 核心能力
 
 - 安全：使用你自己的数据库、LLM、embedding 服务和 agent runtime
@@ -114,6 +116,26 @@ OpenClaw 会自动写入类似如下的配置：
 ```
 
 ## 工作方式
+
+### Memory 分类
+
+纵向+横向分类（type + kind）
+
+type:
+- `fact`：事实。
+- `episodic`：发生过的事。
+- `procedural`：流程、经验、约定。
+
+kind:
+- `skill`
+- `task`
+- `lesson`
+- `workflow`
+- `preference`
+- `profile`
+- `note`
+- `decision`
+- ...
 
 ### 异步 Ingest
 

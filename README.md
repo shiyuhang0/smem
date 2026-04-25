@@ -8,6 +8,8 @@ It is designed for self-hosting rather than as a managed SaaS product. You keep 
 
 `smem` focuses on the full memory pipeline: memory extraction, deduplication, consolidation, retrieval, and agent integration.
 
+![dashboard](./doc/dashboard.png)
+
 ## What It's For
 
 - Use your own database, LLM, embedding service, and agent runtime
@@ -129,6 +131,24 @@ The client is injected into the agent as a plugin, with responsibilities cleanly
 ```
 
 ## How It Works
+
+### Memory Classification
+
+type:
+- `fact`：事实。
+- `episodic`：发生过的事。
+- `procedural`：流程、经验、约定。
+
+kind:
+- `skill`
+- `task`
+- `lesson`
+- `workflow`
+- `preference`
+- `profile`
+- `note`
+- `decision`
+- ...
 
 ### Async Ingest
 
