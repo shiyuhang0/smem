@@ -127,6 +127,24 @@ func TestRecallFiltersLowRerankScores(t *testing.T) {
 	require.Equal(t, "keep", results[0].Memory.ID)
 }
 
+func TestMaxRRFCandidateCount(t *testing.T) {
+	require.Equal(t, 0, maxRRFCandidateCount(0))
+	require.Equal(t, 20, maxRRFCandidateCount(5))
+}
+
+func TestLimitIDsCapsRRFResultCount(t *testing.T) {
+	ids := make([]string, 0, 100)
+	for i := range 100 {
+		ids = append(ids, fmt.Sprintf("id-%02d", i))
+	}
+
+	limited := limitIDs(ids, maxRRFCandidateCount(5))
+	require.Len(t, limited, 20)
+	require.Equal(t, ids[:20], limited)
+	require.Equal(t, 100, len(ids))
+	require.Equal(t, "id-20", ids[20])
+}
+
 type recallRepo struct {
 	vectorCandidates   []memory.RecallCandidate
 	fullTextCandidates []memory.RecallCandidate

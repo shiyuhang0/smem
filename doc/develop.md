@@ -86,3 +86,8 @@
 doc: 项目 readme
 doc: 增加 recall blog，深入解析 recall 设计与实现细节
 server: recall 重新设计与实现，rrf 成为可选项，引入 rerank 打分
+
+### 2026-04-25 23:00
+
+doc: readme 优化
+

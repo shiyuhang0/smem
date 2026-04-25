@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	recencyWeight      = 0.5
-	storeWeight        = 0.5
+	recencyWeight = 0.5
+	storeWeight   = 0.5
 	//useWeight          = 0.3
 	boostWeight        = 0.1
 	recencyHalfLifeDay = 7

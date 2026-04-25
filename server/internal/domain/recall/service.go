@@ -150,6 +150,7 @@ func (s *Service) rrfCandidates(vectorCandidates, fullTextCandidates []memory.Re
 	orderedIDs := append(extractIDs(vectorTopK), extractIDs(fullTextTopK)...)
 	orderedIDs = append(orderedIDs, rankedIDs...)
 	orderedIDs = dedupeIDs(orderedIDs)
+	orderedIDs = limitIDs(orderedIDs, maxRRFCandidateCount(topK))
 	return orderCandidatesByIDs(orderedIDs, mergedCandidates)
 }
 
@@ -245,6 +246,20 @@ func dedupeIDs(ids []string) []string {
 		deduped = append(deduped, id)
 	}
 	return deduped
+}
+
+func limitIDs(ids []string, limit int) []string {
+	if limit <= 0 || len(ids) <= limit {
+		return append([]string(nil), ids...)
+	}
+	return append([]string(nil), ids[:limit]...)
+}
+
+func maxRRFCandidateCount(topK int) int {
+	if topK <= 0 {
+		return 0
+	}
+	return searchDepthMultiplier * topK
 }
 
 func mergeCandidatesByID(groups ...[]memory.RecallCandidate) map[string]memory.RecallCandidate {
