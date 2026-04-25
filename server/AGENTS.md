@@ -227,6 +227,10 @@ OpenAPI 定义见 `api/openapi.yaml`。
 | `openai_base_url` | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | 否 |
 | `openai_api_key` | `OPENAI_API_KEY` | - | 是 |
 | `openai_chat_model` | `OPENAI_CHAT_MODEL` | `gpt-4.1-mini` | 否 |
+| `rerank_provider` | `RERANK_PROVIDER` | `siliconflow` | 是（当前仅 siliconflow） |
+| `rerank_base_url` | `RERANK_BASE_URL` | `https://api.siliconflow.cn/v1` | 否 |
+| `rerank_api_key` | `RERANK_API_KEY` | - | 是 |
+| `rerank_model` | `RERANK_MODEL` | `BAAI/bge-reranker-v2-m3` | 否 |
 | `embedding_provider` | `EMBEDDING_PROVIDER` | `ollama` | 是（openai 或 ollama） |
 | `embedding_base_url` | `EMBEDDING_BASE_URL` | Provider 默认值 | 否 |
 | `embedding_api_key` | `EMBEDDING_API_KEY` | OpenAI 时回退到 openai_api_key | 否 |

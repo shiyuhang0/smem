@@ -18,6 +18,10 @@ type Config struct {
 	OpenAIBaseURL     string
 	OpenAIAPIKey      string
 	OpenAIChatModel   string
+	RerankProvider    string
+	RerankBaseURL     string
+	RerankAPIKey      string
+	RerankModel       string
 	EmbeddingProvider string
 	EmbeddingBaseURL  string
 	EmbeddingAPIKey   string
@@ -33,6 +37,10 @@ type fileConfig struct {
 	OpenAIBaseURL     *string `yaml:"openai_base_url"`
 	OpenAIAPIKey      *string `yaml:"openai_api_key"`
 	OpenAIChatModel   *string `yaml:"openai_chat_model"`
+	RerankProvider    *string `yaml:"rerank_provider"`
+	RerankBaseURL     *string `yaml:"rerank_base_url"`
+	RerankAPIKey      *string `yaml:"rerank_api_key"`
+	RerankModel       *string `yaml:"rerank_model"`
 	EmbeddingProvider *string `yaml:"embedding_provider"`
 	EmbeddingBaseURL  *string `yaml:"embedding_base_url"`
 	EmbeddingAPIKey   *string `yaml:"embedding_api_key"`
@@ -49,6 +57,10 @@ func Load() (Config, error) {
 		OpenAIBaseURL:     stringWithDefault("OPENAI_BASE_URL", "https://api.openai.com/v1"),
 		OpenAIAPIKey:      strings.TrimSpace(os.Getenv("OPENAI_API_KEY")),
 		OpenAIChatModel:   stringWithDefault("OPENAI_CHAT_MODEL", "gpt-4.1-mini"),
+		RerankProvider:    strings.TrimSpace(os.Getenv("RERANK_PROVIDER")),
+		RerankBaseURL:     strings.TrimSpace(os.Getenv("RERANK_BASE_URL")),
+		RerankAPIKey:      strings.TrimSpace(os.Getenv("RERANK_API_KEY")),
+		RerankModel:       strings.TrimSpace(os.Getenv("RERANK_MODEL")),
 		EmbeddingProvider: strings.TrimSpace(os.Getenv("EMBEDDING_PROVIDER")),
 		EmbeddingBaseURL:  strings.TrimSpace(os.Getenv("EMBEDDING_BASE_URL")),
 		EmbeddingAPIKey:   strings.TrimSpace(os.Getenv("EMBEDDING_API_KEY")),
@@ -67,6 +79,7 @@ func Load() (Config, error) {
 		}
 	}
 	cfg = normalizeEmbeddingConfig(cfg)
+	cfg = normalizeRerankConfig(cfg)
 
 	if cfg.DBDSN == "" {
 		return Config{}, fmt.Errorf("DB_DSN is required")
@@ -74,8 +87,14 @@ func Load() (Config, error) {
 	if cfg.OpenAIAPIKey == "" {
 		return Config{}, fmt.Errorf("OPENAI_API_KEY is required")
 	}
+	if cfg.RerankAPIKey == "" {
+		return Config{}, fmt.Errorf("RERANK_API_KEY is required")
+	}
 	if cfg.EmbeddingDim <= 0 {
 		return Config{}, fmt.Errorf("EMBEDDING_DIM must be positive")
+	}
+	if cfg.RerankProvider != "siliconflow" {
+		return Config{}, fmt.Errorf("RERANK_PROVIDER must be siliconflow")
 	}
 	if cfg.EmbeddingProvider != "ollama" && cfg.EmbeddingProvider != "openai" {
 		return Config{}, fmt.Errorf("EMBEDDING_PROVIDER must be ollama or openai")
@@ -135,6 +154,18 @@ func mergeFileConfig(cfg Config, file fileConfig) Config {
 	if file.OpenAIChatModel != nil {
 		cfg.OpenAIChatModel = strings.TrimSpace(*file.OpenAIChatModel)
 	}
+	if file.RerankProvider != nil {
+		cfg.RerankProvider = strings.TrimSpace(*file.RerankProvider)
+	}
+	if file.RerankBaseURL != nil {
+		cfg.RerankBaseURL = strings.TrimSpace(*file.RerankBaseURL)
+	}
+	if file.RerankAPIKey != nil {
+		cfg.RerankAPIKey = strings.TrimSpace(*file.RerankAPIKey)
+	}
+	if file.RerankModel != nil {
+		cfg.RerankModel = strings.TrimSpace(*file.RerankModel)
+	}
 	if file.EmbeddingProvider != nil {
 		cfg.EmbeddingProvider = strings.TrimSpace(*file.EmbeddingProvider)
 	}
@@ -149,6 +180,20 @@ func mergeFileConfig(cfg Config, file fileConfig) Config {
 	}
 	if file.EmbeddingDim != nil {
 		cfg.EmbeddingDim = *file.EmbeddingDim
+	}
+	return cfg
+}
+
+func normalizeRerankConfig(cfg Config) Config {
+	cfg.RerankProvider = strings.TrimSpace(cfg.RerankProvider)
+	if cfg.RerankProvider == "" {
+		cfg.RerankProvider = "siliconflow"
+	}
+	if cfg.RerankBaseURL == "" {
+		cfg.RerankBaseURL = "https://api.siliconflow.cn/v1"
+	}
+	if cfg.RerankModel == "" {
+		cfg.RerankModel = "BAAI/bge-reranker-v2-m3"
 	}
 	return cfg
 }

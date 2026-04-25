@@ -2,14 +2,14 @@ package recall
 
 import (
 	"context"
+	"errors"
 	"math/rand"
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"smem/apps/server/internal/ai/embedding"
-	"smem/apps/server/internal/ai/llm"
+	"smem/apps/server/internal/ai/rerank"
 	"smem/apps/server/internal/config"
 	"smem/apps/server/internal/domain/memory"
 	"smem/apps/server/internal/domain/recall/scoring"
@@ -17,20 +17,27 @@ import (
 
 var recallLogger = config.NewLogger("[recall] ")
 
-const enabelSoftmax = false
+const (
+	enabelSoftmax         = false
+	searchDepthMultiplier = 4
+	headSizeMultiplier    = 1
+	rrfTailMultiplier     = 3
+	rrfTopMultiplier      = 4
+	rerankThreshold       = 0.6
+)
 
 type Service struct {
 	repo      memory.Repository
 	embedder  embedding.Provider
-	llm       llm.Provider
+	reranker  rerank.Provider
 	randFloat func() float64
 }
 
-func NewService(repo memory.Repository, embedder embedding.Provider, llmProvider llm.Provider) *Service {
+func NewService(repo memory.Repository, embedder embedding.Provider, reranker rerank.Provider) *Service {
 	return &Service{
 		repo:      repo,
 		embedder:  embedder,
-		llm:       llmProvider,
+		reranker:  reranker,
 		randFloat: rand.Float64,
 	}
 }
@@ -44,18 +51,15 @@ func (s *Service) Recall(ctx context.Context, input memory.RecallInput) ([]memor
 		return nil, err
 	}
 
-	results := s.rerankRecallResults(candidates, time.Now().UTC())
+	results, err := s.rerankRecallResults(ctx, query, candidates)
+	if err != nil {
+		return nil, err
+	}
 	if len(results) == 0 {
 		return nil, nil
 	}
 
 	return s.finalizeRecallResults(results, input), nil
-}
-
-type rewriteResult struct {
-	Content string   `json:"content"`
-	Type    string   `json:"type"`
-	Kinds   []string `json:"kinds"`
 }
 
 func normalizeRecallInput(input memory.RecallInput) memory.RecallInput {
@@ -70,8 +74,7 @@ func normalizeRecallInput(input memory.RecallInput) memory.RecallInput {
 
 func rewriteRecallQuery(input memory.RecallInput) string {
 	// Keep the placeholder rewrite stage explicit so content/type/kinds can be added later.
-	rewritten := rewriteResult{Content: input.Content}
-	return rewritten.Content
+	return input.Content
 }
 
 func (s *Service) loadRecallCandidates(ctx context.Context, query string, topK int) ([]memory.RecallCandidate, error) {
@@ -92,10 +95,15 @@ func (s *Service) loadRecallCandidates(ctx context.Context, query string, topK i
 	return rrfCandidates, nil
 }
 
-func (s *Service) rerankRecallResults(candidates []memory.RecallCandidate, now time.Time) []memory.RecallResult {
-	results := s.rerankCandidates(candidates, "hybrid_recall", now)
+func (s *Service) rerankRecallResults(ctx context.Context, query string, candidates []memory.RecallCandidate) ([]memory.RecallResult, error) {
+	rerankedCandidates, err := s.rerankCandidates(ctx, query, candidates)
+	if err != nil {
+		return nil, err
+	}
+	recallLogger.Printf("reranked_candidates=%v", summarizeRerankedCandidates(rerankedCandidates))
+	results := s.scoreCandidates(rerankedCandidates)
 	recallLogger.Printf("final_scores=%v", summarizeRecallResults(results))
-	return results
+	return results, nil
 }
 
 func (s *Service) finalizeRecallResults(results []memory.RecallResult, input memory.RecallInput) []memory.RecallResult {
@@ -120,41 +128,78 @@ func (s *Service) searchVectorCandidates(ctx context.Context, query string, topK
 	if err != nil {
 		return nil, nil
 	}
-	return s.repo.VectorSearch(ctx, vector, topK*2)
+	return s.repo.VectorSearch(ctx, vector, topK*searchDepthMultiplier)
 }
 
 func (s *Service) searchFullTextCandidates(ctx context.Context, query string, topK int) ([]memory.RecallCandidate, error) {
-	return s.repo.FullTextSearch(ctx, query, topK*2)
+	return s.repo.FullTextSearch(ctx, query, topK*searchDepthMultiplier)
 }
 
 func (s *Service) rrfCandidates(vectorCandidates, fullTextCandidates []memory.RecallCandidate, topK int) []memory.RecallCandidate {
-	vectorIDs := extractIDs(vectorCandidates)
-	fullTextIDs := extractIDs(fullTextCandidates)
-	rankedIDs := scoring.RRF([][]string{vectorIDs, fullTextIDs}, 60)
-	if len(rankedIDs) > topK*2 {
-		rankedIDs = rankedIDs[:topK*2]
+	protectedVector := limitCandidates(vectorCandidates, topK*headSizeMultiplier)
+	protectedFullText := limitCandidates(fullTextCandidates, topK*headSizeMultiplier)
+	vectorRRFPool := sliceCandidates(vectorCandidates, topK*headSizeMultiplier, topK*rrfTailMultiplier)
+	fullTextRRFPool := sliceCandidates(fullTextCandidates, topK*headSizeMultiplier, topK*rrfTailMultiplier)
+	rankedIDs := scoring.RRF([][]string{extractIDs(vectorRRFPool), extractIDs(fullTextRRFPool)}, 10)
+	if len(rankedIDs) > topK*rrfTopMultiplier {
+		rankedIDs = rankedIDs[:topK*rrfTopMultiplier]
 	}
 	mergedCandidates := mergeCandidatesByID(vectorCandidates, fullTextCandidates)
-	return orderCandidatesByIDs(rankedIDs, mergedCandidates)
+	ordered := append([]memory.RecallCandidate(nil), protectedVector...)
+	ordered = append(ordered, protectedFullText...)
+	ordered = append(ordered, orderCandidatesByIDs(rankedIDs, mergedCandidates)...)
+	return dedupeCandidates(ordered)
 }
 
-func (s *Service) rerankCandidates(candidates []memory.RecallCandidate, reason string, now time.Time) []memory.RecallResult {
-	maxStoreCount := maxCandidateStoreCount(candidates)
-	maxFullTextScore := maxCandidateFullTextScore(candidates)
-	results := make([]memory.RecallResult, 0, len(candidates))
+type rerankedCandidate struct {
+	Candidate   memory.RecallCandidate
+	RerankScore float64
+}
+
+func (s *Service) rerankCandidates(ctx context.Context, query string, candidates []memory.RecallCandidate) ([]rerankedCandidate, error) {
+	if s.reranker == nil {
+		return nil, errors.New("rerank provider is not configured")
+	}
+
+	documents := make([]string, 0, len(candidates))
+	filteredCandidates := make([]memory.RecallCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
 		if !candidate.Memory.Searchable() {
 			continue
 		}
-		score := scoring.Score(scoring.ScoreInput{
-			Candidate:        candidate,
-			Now:              now,
-			MaxStoreCount:    maxStoreCount,
-			MaxFullTextScore: maxFullTextScore,
-		})
-		results = append(results, memory.RecallResult{Memory: candidate.Memory, Score: score, Reason: reason})
+		documents = append(documents, candidate.Memory.Content)
+		filteredCandidates = append(filteredCandidates, candidate)
 	}
-	return results
+	if len(filteredCandidates) == 0 {
+		return nil, nil
+	}
+
+	rerankResults, err := s.reranker.Rerank(ctx, query, documents, len(documents))
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(rerankResults, func(i, j int) bool { return rerankResults[i].RelevanceScore > rerankResults[j].RelevanceScore })
+
+	rerankedCandidates := make([]rerankedCandidate, 0, len(filteredCandidates))
+	for _, rerankResult := range rerankResults {
+		if rerankResult.Index < 0 || rerankResult.Index >= len(filteredCandidates) {
+			continue
+		}
+		if rerankResult.RelevanceScore < rerankThreshold {
+			continue
+		}
+		candidate := filteredCandidates[rerankResult.Index]
+		rerankedCandidates = append(rerankedCandidates, rerankedCandidate{Candidate: candidate, RerankScore: rerankResult.RelevanceScore})
+	}
+	return rerankedCandidates, nil
+}
+
+func (s *Service) scoreCandidates(candidates []rerankedCandidate) []memory.RecallResult {
+	inputs := make([]scoring.CandidateScoreInput, 0, len(candidates))
+	for _, candidate := range candidates {
+		inputs = append(inputs, scoring.CandidateScoreInput{Candidate: candidate.Candidate, RerankScore: candidate.RerankScore})
+	}
+	return scoring.Score(inputs)
 }
 
 func (s *Service) applySoftmaxScores(results []memory.RecallResult, temperature float64) []memory.RecallResult {
@@ -211,27 +256,35 @@ func orderCandidatesByIDs(ids []string, byID map[string]memory.RecallCandidate) 
 	return ordered
 }
 
-func maxCandidateStoreCount(candidates []memory.RecallCandidate) int {
-	maxStoreCount := 0
-	for _, candidate := range candidates {
-		if candidate.Memory.StoreCount > maxStoreCount {
-			maxStoreCount = candidate.Memory.StoreCount
-		}
+func limitCandidates(candidates []memory.RecallCandidate, limit int) []memory.RecallCandidate {
+	if limit <= 0 || len(candidates) <= limit {
+		return append([]memory.RecallCandidate(nil), candidates...)
 	}
-	return maxStoreCount
+	return append([]memory.RecallCandidate(nil), candidates[:limit]...)
 }
 
-func maxCandidateFullTextScore(candidates []memory.RecallCandidate) float64 {
-	maxScore := 0.0
+func sliceCandidates(candidates []memory.RecallCandidate, offset, limit int) []memory.RecallCandidate {
+	if offset >= len(candidates) || limit <= 0 {
+		return nil
+	}
+	end := offset + limit
+	if end > len(candidates) {
+		end = len(candidates)
+	}
+	return append([]memory.RecallCandidate(nil), candidates[offset:end]...)
+}
+
+func dedupeCandidates(candidates []memory.RecallCandidate) []memory.RecallCandidate {
+	seen := map[string]struct{}{}
+	deduped := make([]memory.RecallCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
-		if candidate.FullTextScore == nil {
+		if _, ok := seen[candidate.Memory.ID]; ok {
 			continue
 		}
-		if *candidate.FullTextScore > maxScore {
-			maxScore = *candidate.FullTextScore
-		}
+		seen[candidate.Memory.ID] = struct{}{}
+		deduped = append(deduped, candidate)
 	}
-	return maxScore
+	return deduped
 }
 
 func (s *Service) selectTopKByProbability(results []memory.RecallResult, topK int) []memory.RecallResult {
@@ -273,7 +326,7 @@ func pickByProbability(results []memory.RecallResult, draw float64) int {
 func summarizeRecallResults(results []memory.RecallResult) []string {
 	out := make([]string, 0, len(results))
 	for _, result := range results {
-		out = append(out, contentSnippet(result.Memory.Content)+"("+result.Memory.ID+")"+":"+formatFloat(result.Score))
+		out = append(out, contentSnippet(result.Memory.Content)+":"+formatFloat(result.Score))
 	}
 	return out
 }
@@ -282,11 +335,19 @@ func summarizeRecallCandidates(candidates []memory.RecallCandidate) []string {
 	out := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
 		out = append(out,
-			candidate.Memory.ID+":"+
-				contentSnippet(candidate.Memory.Content)+
+			contentSnippet(candidate.Memory.Content)+
 				":distance="+formatOptionalFloat(candidate.VectorDistance)+
-				":score="+formatOptionalFloat(candidate.FullTextScore),
+				":score="+formatOptionalFloat(candidate.FullTextScore)+
+				"\n",
 		)
+	}
+	return out
+}
+
+func summarizeRerankedCandidates(candidates []rerankedCandidate) []string {
+	out := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		out = append(out, contentSnippet(candidate.Candidate.Memory.Content)+":"+formatFloat(candidate.RerankScore))
 	}
 	return out
 }

@@ -493,17 +493,17 @@ Recalled existing memories:
 
 ### Flow
 
-假设要求召回 top k 条相关记忆，召回流程如下：
+假设要求召回 top n 条相关记忆，召回流程如下：
 
-1. 基于 `content` 粗排。
-   1. 基于向量搜索 2k 条记忆，只搜 `active` 状态的记忆，注意需要保留 distance。
-   2. 基于全文搜索 2k 条记忆，只搜 `active` 状态的记忆，注意保留 score。
-   3. 使用 RRF 融合两种搜索结果，得到最终 top 2k 条记忆。
-2. rerank 精排得到 top k。
-   1. 打分策略：
-      1. 权重打分：基于第一步中的 `distance`, `score`。以及创建时间、最近更新时间、存储次数等方面设置权重进行打分。未来可增加 `type`、`kinds` 等。
-      2. reranker 打分：如 `CohereReranker`、`cross-encoder`，暂时不实现，但预留位置。
-   2. 对得分进行 softmax，并设置 `Temperature` 参数。得到概率后，按概率召回 topk，而不是直接取前 k 个。
+粗排：
+1. 向量搜索4n（20） + 全文检索4n（20）。只搜 `active` 状态的记忆。
+2. 头部取值+RRF 融合：各取头部前n(5)名。剩下的进行 RRF融合，k = 10，得 top4n（20）。一共得到 4n～5n 条候选。
+精排：
+1. bge-rerank-v2-m3 rerank + 阈值过滤（0.6）
+2. boost 分数：相似性为主，但会 boost 其他维度，如时间（近期优先）、存储次数（多次记忆优先）、类型（和问题匹配的类型优先）等。
+结果：
+1. 可选（发散记忆）：softmax + temperature：对最终得分进行 softmax 归一化，设置 `Temperature` 参数。得到概率后，按概率召回 topn，而不是直接取前 n 个。
+2. 选分高的 topn。
 
 ### Relevance-Gated Rerank
 
@@ -511,12 +511,5 @@ Recalled existing memories:
 
 > 相关性信号决定“能不能进场”，时间和存储次数只负责在相关候选之间做微调，不负责让弱相关或无关候选翻盘。
 
-1. 先基于 `distance` 和 `score` 计算 `relevance` 主分。
-2. 再引入 `recency`、`store_count` 作为 boost。
-3. 只有当 `relevance` 超过一个较低门槛后，业务信号才参与增强；当 `relevance` 很低时，直接返回 `relevance`，不再叠加 boost。
-
-
-4. `relevance = 0.6 * vector_similarity + 0.4 * full_text_score`
-5. `vector_similarity` 由 `distance` 归一化得到，`full_text_score` 由当前候选集合中的最大 `score` 归一化得到。
-6. 通过门槛后，再计算 `boost = 0.7 * recency + 0.3 * store_count_score`
-7. 最终得分为 `relevance + 0.1 * boost`
+1. 引入 `recency`、`store_count` 作为 boost。
+2. 最终得分为 `relevance + 0.1 * boost`

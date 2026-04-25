@@ -50,6 +50,11 @@ openai_base_url: "https://api.openai.com/v1"
 openai_api_key: "your-api-key"
 openai_chat_model: "gpt-5.4"
 
+rerank_provider: "siliconflow"
+rerank_base_url: "https://api.siliconflow.cn/v1"
+rerank_api_key: "your-rerank-api-key"
+rerank_model: "BAAI/bge-reranker-v2-m3"
+
 embedding_provider: "openai"
 embedding_base_url: "https://api.openai.com/v1"
 embedding_api_key: "your-api-key"
@@ -178,6 +183,10 @@ dashboard 让你可以直接看到 agent 记住了什么。
 - `openai_base_url`：chat model base URL
 - `openai_api_key`：chat model API key
 - `openai_chat_model`：chat model 名称
+- `rerank_provider`：当前仅支持 `siliconflow`
+- `rerank_base_url`：rerank endpoint base URL
+- `rerank_api_key`：rerank API key
+- `rerank_model`：rerank model 名称
 - `embedding_provider`：`openai` 或 `ollama`
 - `embedding_base_url`：embedding endpoint base URL
 - `embedding_api_key`：embedding API key
@@ -195,6 +204,11 @@ db_tls_server_name: "gateway01.ap-southeast-1.prod.aws.tidbcloud.com"
 openai_base_url: "https://api.openai.com/v1"
 openai_api_key: "your-api-key"
 openai_chat_model: "gpt-5.4"
+
+rerank_provider: "siliconflow"
+rerank_base_url: "https://api.siliconflow.cn/v1"
+rerank_api_key: "your-rerank-api-key"
+rerank_model: "BAAI/bge-reranker-v2-m3"
 
 embedding_provider: "openai"
 embedding_base_url: "https://api.openai.com/v1"

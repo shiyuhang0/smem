@@ -14,6 +14,7 @@ import (
 
 	"smem/apps/server/internal/ai/embedding"
 	"smem/apps/server/internal/ai/llm"
+	"smem/apps/server/internal/ai/rerank"
 	"smem/apps/server/internal/ai/retry"
 	"smem/apps/server/internal/config"
 	"smem/apps/server/internal/domain/ingest"
@@ -56,7 +57,11 @@ func New(cfg config.Config) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	recallService := recall.NewService(memoryRepo, embeddingProvider, llmProvider)
+	rerankProvider, err := newRerankProvider(cfg, retryPolicy)
+	if err != nil {
+		return nil, err
+	}
+	recallService := recall.NewService(memoryRepo, embeddingProvider, rerankProvider)
 	ingestService := ingest.NewService(jobRepo, newIngestJobID)
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	jobWorker := ingest.NewJobWorker(jobRepo, txManager, recallService, llmProvider, embeddingProvider, newMemoryID, newWorkerID())
@@ -105,6 +110,18 @@ func newEmbeddingProvider(cfg config.Config, retryPolicy retry.Policy) (embeddin
 		return embedding.NewOpenAIProvider(providerConfig), nil
 	default:
 		return nil, fmt.Errorf("unsupported embedding provider: %s", cfg.EmbeddingProvider)
+	}
+}
+
+func newRerankProvider(cfg config.Config, retryPolicy retry.Policy) (rerank.Provider, error) {
+	providerConfig := rerank.Config{
+		BaseURL: cfg.RerankBaseURL, APIKey: cfg.RerankAPIKey, Model: cfg.RerankModel, Retry: retryPolicy,
+	}
+	switch cfg.RerankProvider {
+	case "siliconflow":
+		return rerank.NewSiliconFlowProvider(providerConfig), nil
+	default:
+		return nil, fmt.Errorf("unsupported rerank provider: %s", cfg.RerankProvider)
 	}
 }
 
