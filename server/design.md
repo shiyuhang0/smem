@@ -498,9 +498,11 @@ Recalled existing memories:
 粗排：
 1. 向量搜索4n（20） + 全文检索4n（20）。只搜 `active` 状态的记忆。
 2. 头部取值+RRF 融合：各取头部前n(5)名。剩下的进行 RRF融合，k = 10，得 top4n（20）。一共得到 4n～5n 条候选。
-精排：
+   
+精排打分
 1. bge-rerank-v2-m3 rerank + 阈值过滤（0.6）
 2. boost 分数：相似性为主，但会 boost 其他维度，如时间（近期优先）、存储次数（多次记忆优先）、类型（和问题匹配的类型优先）等。
+
 结果：
 1. 可选（发散记忆）：softmax + temperature：对最终得分进行 softmax 归一化，设置 `Temperature` 参数。得到概率后，按概率召回 topn，而不是直接取前 n 个。
 2. 选分高的 topn。

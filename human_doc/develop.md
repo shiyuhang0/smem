@@ -80,3 +80,9 @@
 
 - plugin: 实现 OpenClaw plugin，替换 OpenClaw 内置 memory 插件。
 - plugin: 实现 tool-driven 和 hook-based 两种 recall/store 模式。
+
+### 2026-04-23~ 2026-04-25
+
+doc: 项目 readme
+doc: 增加 recall blog，深入解析 recall 设计与实现细节
+server: recall 重新设计与实现，rrf 成为可选项，引入 rerank 打分

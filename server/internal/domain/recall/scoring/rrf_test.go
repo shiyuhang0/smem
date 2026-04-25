@@ -6,7 +6,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRRFMerge(t *testing.T) {
-	merged := RRF([][]string{{"a", "b"}, {"b", "c"}}, 60)
-	require.Equal(t, []string{"b", "a", "c"}, merged)
+func TestAdaptiveRRFKUsesTwoNWithinBounds(t *testing.T) {
+	short := []string{"a", "b", "c", "d"}
+	medium := make([]string, 15)
+	large := make([]string, 40)
+
+	require.Equal(t, 10.0, adaptiveRRFK([][]string{short}))
+	require.Equal(t, 30.0, adaptiveRRFK([][]string{short, medium}))
+	require.Equal(t, 60.0, adaptiveRRFK([][]string{large}))
 }

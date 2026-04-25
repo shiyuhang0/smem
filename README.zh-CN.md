@@ -12,14 +12,12 @@
 
 ## 核心能力
 
-- 记忆异步提取：不阻塞主 agent 路径。
-- 智能记忆融合：基于 LLM 的记忆融合，支持创建、更新、删除和强化记忆。
-- 多维召回
-  - 基于 vector search + full-text search + RRF 粗排。
-  - 精排：相关性为主，其他维度为辅的打分机制
-  - 时间衰退机制
-  - 低分过滤机制
-  - 发散思维机制：softmax + temperature 的概率式召回选取，避免过度集中在少数记忆上。
+- 异步提取：不阻塞主 agent 路径。
+- 智能融合：基于 LLM 的记忆融合，支持创建、更新、删除和强化记忆。
+- 精确召回
+  - 粗排：vector search + full-text search + 可选 RRF
+  - 精排：bge-rerank + 多维度打分
+  - [可选]发散思维机制：softmax + temperature 的概率式召回选取，避免过度集中在少数记忆上。
 - dashboard 用于浏览、搜索、过滤和归档记忆。
 - openclaw 插件支持：提供基于 tool 和基于 hook 的两种集成模式。
 
@@ -142,25 +140,27 @@ TiDB Cloud + LLM + embedding provider
   - 相同记忆：强化老记忆
   - ...
 
-### 多维召回
+### 精确召回
 
-- vector search 捕获语义相似性 + full-text search 捕获词面匹配 + RRF 合并两条召回通道
-- 相似性为主，其他维度为辅的打分机制。即不会因为某个维度的高分就大幅提升最终排名，但会在相关性相近的记忆中起到区分作用。
-  - 如多次记忆的内容会被优先召回：
-- 引入时间衰退机制
-- 引入低分过滤机制，过滤掉相关性过低的记忆
+- vector search 捕获语义相似性 + full-text search 捕获词面匹配 
+- 可选 RRF：固定取 topk，剩下的进行 RRF 融合，兼顾单路保护和共识融合。k 值按数据量动态调整，保证选出共识记忆。 
+- bge-rerank + 多维度打分: bge-rerank 分数为主，过滤低分。以 0.1 的权重 boost 其他维度：
+  - 如时间（近期优先）：7天半衰期
+  - 存储次数（多次记忆优先）
+  - 类型
+  - .。。
 - 引入思维发散机制：Softmax 的概率式选择，以支持更有多样性的召回。调整 temperature 可以控制发散程度。
 
-这让 `smem` 不只是返回“相似”的记忆，而是更有机会返回在实际使用中“更有用”的记忆。
+这让 `smem` 再精确召回“相似”记忆的基础上，更有机会返回在实际使用中“更有用”的记忆。
 
 ### OpenClaw Tool Mode 与 Auto Mode
 
 OpenClaw 插件支持两种集成方式。
 
-- `toolMode=true`：推荐默认值。模型以显式工具方式使用 `memory_search` 和 `memory_store`
-- `toolMode=false`：基于 hook 的自动模式。recall 在构建 prompt 前执行，store 在 `agent_end` 时执行
+- `toolMode=true`：推荐默认值。模型以显式工具方式使用 `memory_search` 和 `memory_store`。
+- `toolMode=false`：基于 hook 的自动模式。recall 在构建 prompt 前执行，store 在 `agent_end` 时执行。
 
-无论哪种模式，插件都会占用 OpenClaw 的 `memory` 插槽，并把当前活跃的 memory 路径替换为 `smem`。
+无论哪种模式，插件会占用 OpenClaw 的 `memory` 插槽，并把当前活跃的 memory 路径替换为 `smem`。注意创建会修改 system prompt 增加 memory guidance。
 
 ### Dashboard
 
@@ -243,16 +243,6 @@ embedding_dim: 1536
 - `topK`：召回结果数量。默认：`5`
 - `storeMode`：`normal` 或 `smart`。默认：`smart`
 - `timeoutMs`：请求超时时间，单位毫秒。默认：`8000`
-
-
-## 仓库结构
-
-```text
-server/             Go memory server
-plugin/openclaw/    OpenClaw memory plugin
-dashboard/          Memory dashboard
-human_doc/          面向人的设计和研究文档
-```
 
 ## 延伸阅读
 

@@ -51,7 +51,7 @@ func TestRecallReturnsErrorWhenFullTextSearchFails(t *testing.T) {
 	require.Nil(t, results)
 }
 
-func TestRecallMergesVectorAndFullTextViaRRFAndReranks(t *testing.T) {
+func TestRecallMergesVectorAndFullTextAndReranks(t *testing.T) {
 	now := time.Now().UTC()
 	repo := &recallRepo{
 		vectorCandidates: []memory.RecallCandidate{
@@ -72,7 +72,7 @@ func TestRecallMergesVectorAndFullTextViaRRFAndReranks(t *testing.T) {
 	require.ElementsMatch(t, []string{"vec-only", "shared", "fts-only"}, []string{results[0].Memory.ID, results[1].Memory.ID, results[2].Memory.ID})
 }
 
-func TestRecallUsesFourXTopKSearchDepthAndHeadProtection(t *testing.T) {
+func TestRecallUsesFourXTopKSearchDepthAndDirectMergeByDefault(t *testing.T) {
 	now := time.Now().UTC()
 	vectorCandidates := make([]memory.RecallCandidate, 0, 20)
 	fullTextCandidates := make([]memory.RecallCandidate, 0, 20)
@@ -81,8 +81,8 @@ func TestRecallUsesFourXTopKSearchDepthAndHeadProtection(t *testing.T) {
 		fullTextCandidates = append(fullTextCandidates, memory.RecallCandidate{Memory: memory.Memory{ID: fmt.Sprintf("fts-%02d", i), Content: fmt.Sprintf("fts %02d", i), State: memory.StateActive, StoreCount: 1, CreatedAt: now, UpdatedAt: now}})
 	}
 	repo := &recallRepo{vectorCandidates: vectorCandidates, fullTextCandidates: fullTextCandidates}
-	rerankResults := make([]rerank.Result, 0, 10)
-	for i := range 10 {
+	rerankResults := make([]rerank.Result, 0, 5)
+	for i := range 5 {
 		rerankResults = append(rerankResults, rerank.Result{Index: i, RelevanceScore: 0.9 - float64(i)*0.01})
 	}
 	svc := NewService(repo, fakeEmbedder{}, fakeReranker{results: rerankResults})
@@ -96,10 +96,30 @@ func TestRecallUsesFourXTopKSearchDepthAndHeadProtection(t *testing.T) {
 	require.Equal(t, "vec-04", results[4].Memory.ID)
 }
 
+func TestRecallDirectMergeDedupesSharedCandidatesByDefault(t *testing.T) {
+	now := time.Now().UTC()
+	repo := &recallRepo{
+		vectorCandidates: []memory.RecallCandidate{
+			{Memory: memory.Memory{ID: "shared", Content: "shared", State: memory.StateActive, StoreCount: 1, CreatedAt: now, UpdatedAt: now}, VectorDistance: floatPtr(0.1)},
+			{Memory: memory.Memory{ID: "vec-only", Content: "vec only", State: memory.StateActive, StoreCount: 1, CreatedAt: now, UpdatedAt: now}, VectorDistance: floatPtr(0.2)},
+		},
+		fullTextCandidates: []memory.RecallCandidate{
+			{Memory: memory.Memory{ID: "shared", Content: "shared", State: memory.StateActive, StoreCount: 1, CreatedAt: now, UpdatedAt: now}, FullTextScore: floatPtr(0.9)},
+			{Memory: memory.Memory{ID: "fts-only", Content: "fts only", State: memory.StateActive, StoreCount: 1, CreatedAt: now, UpdatedAt: now}, FullTextScore: floatPtr(0.8)},
+		},
+	}
+	svc := NewService(repo, fakeEmbedder{}, fakeReranker{results: []rerank.Result{{Index: 0, RelevanceScore: 0.95}, {Index: 1, RelevanceScore: 0.85}, {Index: 2, RelevanceScore: 0.75}}})
+
+	results, err := svc.Recall(context.Background(), memory.RecallInput{Content: "shared", TopK: 3, Temperature: 1})
+	require.NoError(t, err)
+	require.Len(t, results, 3)
+	require.Equal(t, []string{"shared", "vec-only", "fts-only"}, []string{results[0].Memory.ID, results[1].Memory.ID, results[2].Memory.ID})
+}
+
 func TestRecallFiltersLowRerankScores(t *testing.T) {
 	now := time.Now().UTC()
 	repo := &recallRepo{vectorCandidates: []memory.RecallCandidate{{Memory: memory.Memory{ID: "keep", Content: "keep", State: memory.StateActive, StoreCount: 1, CreatedAt: now, UpdatedAt: now}}, {Memory: memory.Memory{ID: "drop", Content: "drop", State: memory.StateActive, StoreCount: 1, CreatedAt: now, UpdatedAt: now}}}}
-	svc := NewService(repo, fakeEmbedder{}, fakeReranker{results: []rerank.Result{{Index: 0, RelevanceScore: 0.8}, {Index: 1, RelevanceScore: 0.59}}})
+	svc := NewService(repo, fakeEmbedder{}, fakeReranker{results: []rerank.Result{{Index: 0, RelevanceScore: 0.8}, {Index: 1, RelevanceScore: 0.39}}})
 
 	results, err := svc.Recall(context.Background(), memory.RecallInput{Content: "query", TopK: 5, Temperature: 1})
 	require.NoError(t, err)

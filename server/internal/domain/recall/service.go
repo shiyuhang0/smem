@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"smem/apps/server/internal/ai/embedding"
 	"smem/apps/server/internal/ai/rerank"
@@ -19,11 +20,10 @@ var recallLogger = config.NewLogger("[recall] ")
 
 const (
 	enabelSoftmax         = false
+	enableRRF             = false
 	searchDepthMultiplier = 4
-	headSizeMultiplier    = 1
-	rrfTailMultiplier     = 3
-	rrfTopMultiplier      = 4
-	rerankThreshold       = 0.6
+	// threshold 0.6-0.75 is relabled, but set a lower threshold to allow more candidates here.
+	rerankThreshold = 0.4
 )
 
 type Service struct {
@@ -82,17 +82,17 @@ func (s *Service) loadRecallCandidates(ctx context.Context, query string, topK i
 	if err != nil {
 		return nil, err
 	}
-	recallLogger.Printf("vector_search_results=%v", summarizeRecallCandidates(vectorCandidates))
+	recallLogger.Printf("vector_search_results=\n%v", summarizeRecallCandidates(vectorCandidates))
 
 	fullTextCandidates, err := s.searchFullTextCandidates(ctx, query, topK)
 	if err != nil {
 		return nil, err
 	}
-	recallLogger.Printf("full_search_results=%v", summarizeRecallCandidates(fullTextCandidates))
+	recallLogger.Printf("full_search_results=\n%v", summarizeRecallCandidates(fullTextCandidates))
 
-	rrfCandidates := s.rrfCandidates(vectorCandidates, fullTextCandidates, topK)
-	recallLogger.Printf("rrf_candidates=%v", summarizeRecallCandidates(rrfCandidates))
-	return rrfCandidates, nil
+	mergedCandidates := s.rrfCandidates(vectorCandidates, fullTextCandidates, topK)
+	recallLogger.Printf("merged_candidates=\n%v", summarizeRecallCandidates(mergedCandidates))
+	return mergedCandidates, nil
 }
 
 func (s *Service) rerankRecallResults(ctx context.Context, query string, candidates []memory.RecallCandidate) ([]memory.RecallResult, error) {
@@ -100,9 +100,9 @@ func (s *Service) rerankRecallResults(ctx context.Context, query string, candida
 	if err != nil {
 		return nil, err
 	}
-	recallLogger.Printf("reranked_candidates=%v", summarizeRerankedCandidates(rerankedCandidates))
+	recallLogger.Printf("reranked_candidates=\n%v", summarizeRerankedCandidates(rerankedCandidates))
 	results := s.scoreCandidates(rerankedCandidates)
-	recallLogger.Printf("final_scores=%v", summarizeRecallResults(results))
+	recallLogger.Printf("final_scores=\n%v", summarizeRecallResults(results))
 	return results, nil
 }
 
@@ -136,19 +136,21 @@ func (s *Service) searchFullTextCandidates(ctx context.Context, query string, to
 }
 
 func (s *Service) rrfCandidates(vectorCandidates, fullTextCandidates []memory.RecallCandidate, topK int) []memory.RecallCandidate {
-	protectedVector := limitCandidates(vectorCandidates, topK*headSizeMultiplier)
-	protectedFullText := limitCandidates(fullTextCandidates, topK*headSizeMultiplier)
-	vectorRRFPool := sliceCandidates(vectorCandidates, topK*headSizeMultiplier, topK*rrfTailMultiplier)
-	fullTextRRFPool := sliceCandidates(fullTextCandidates, topK*headSizeMultiplier, topK*rrfTailMultiplier)
-	rankedIDs := scoring.RRF([][]string{extractIDs(vectorRRFPool), extractIDs(fullTextRRFPool)}, 10)
-	if len(rankedIDs) > topK*rrfTopMultiplier {
-		rankedIDs = rankedIDs[:topK*rrfTopMultiplier]
-	}
 	mergedCandidates := mergeCandidatesByID(vectorCandidates, fullTextCandidates)
-	ordered := append([]memory.RecallCandidate(nil), protectedVector...)
-	ordered = append(ordered, protectedFullText...)
-	ordered = append(ordered, orderCandidatesByIDs(rankedIDs, mergedCandidates)...)
-	return dedupeCandidates(ordered)
+	if !enableRRF {
+		orderedIDs := dedupeIDs(append(extractIDs(vectorCandidates), extractIDs(fullTextCandidates)...))
+		return orderCandidatesByIDs(orderedIDs, mergedCandidates)
+	}
+
+	vectorTopK := limitCandidates(vectorCandidates, topK)
+	fullTextTopK := limitCandidates(fullTextCandidates, topK)
+	vectorRest := restCandidates(vectorCandidates, topK)
+	fullTextRest := restCandidates(fullTextCandidates, topK)
+	rankedIDs := scoring.RRF([][]string{extractIDs(vectorRest), extractIDs(fullTextRest)})
+	orderedIDs := append(extractIDs(vectorTopK), extractIDs(fullTextTopK)...)
+	orderedIDs = append(orderedIDs, rankedIDs...)
+	orderedIDs = dedupeIDs(orderedIDs)
+	return orderCandidatesByIDs(orderedIDs, mergedCandidates)
 }
 
 type rerankedCandidate struct {
@@ -160,6 +162,11 @@ func (s *Service) rerankCandidates(ctx context.Context, query string, candidates
 	if s.reranker == nil {
 		return nil, errors.New("rerank provider is not configured")
 	}
+
+	startedAt := time.Now()
+	defer func() {
+		recallLogger.Printf("rerank_candidates_duration=%s", time.Since(startedAt))
+	}()
 
 	documents := make([]string, 0, len(candidates))
 	filteredCandidates := make([]memory.RecallCandidate, 0, len(candidates))
@@ -186,6 +193,10 @@ func (s *Service) rerankCandidates(ctx context.Context, query string, candidates
 			continue
 		}
 		if rerankResult.RelevanceScore < rerankThreshold {
+			recallLogger.Printf("rerank score below threshold (%f)%v(%.2f)",
+				rerankThreshold,
+				contentSnippet(filteredCandidates[rerankResult.Index].Memory.Content),
+				rerankResult.RelevanceScore)
 			continue
 		}
 		candidate := filteredCandidates[rerankResult.Index]
@@ -221,6 +232,19 @@ func extractIDs(items []memory.RecallCandidate) []string {
 		ids = append(ids, item.Memory.ID)
 	}
 	return ids
+}
+
+func dedupeIDs(ids []string) []string {
+	seen := map[string]struct{}{}
+	deduped := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		deduped = append(deduped, id)
+	}
+	return deduped
 }
 
 func mergeCandidatesByID(groups ...[]memory.RecallCandidate) map[string]memory.RecallCandidate {
@@ -263,28 +287,14 @@ func limitCandidates(candidates []memory.RecallCandidate, limit int) []memory.Re
 	return append([]memory.RecallCandidate(nil), candidates[:limit]...)
 }
 
-func sliceCandidates(candidates []memory.RecallCandidate, offset, limit int) []memory.RecallCandidate {
-	if offset >= len(candidates) || limit <= 0 {
+func restCandidates(candidates []memory.RecallCandidate, offset int) []memory.RecallCandidate {
+	if offset <= 0 {
+		return append([]memory.RecallCandidate(nil), candidates...)
+	}
+	if offset >= len(candidates) {
 		return nil
 	}
-	end := offset + limit
-	if end > len(candidates) {
-		end = len(candidates)
-	}
-	return append([]memory.RecallCandidate(nil), candidates[offset:end]...)
-}
-
-func dedupeCandidates(candidates []memory.RecallCandidate) []memory.RecallCandidate {
-	seen := map[string]struct{}{}
-	deduped := make([]memory.RecallCandidate, 0, len(candidates))
-	for _, candidate := range candidates {
-		if _, ok := seen[candidate.Memory.ID]; ok {
-			continue
-		}
-		seen[candidate.Memory.ID] = struct{}{}
-		deduped = append(deduped, candidate)
-	}
-	return deduped
+	return append([]memory.RecallCandidate(nil), candidates[offset:]...)
 }
 
 func (s *Service) selectTopKByProbability(results []memory.RecallResult, topK int) []memory.RecallResult {

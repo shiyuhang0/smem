@@ -2,7 +2,8 @@ package scoring
 
 import "sort"
 
-func RRF(rankings [][]string, k float64) []string {
+func RRF(rankings [][]string) []string {
+	k := adaptiveRRFK(rankings)
 	scores := map[string]float64{}
 	for _, ranking := range rankings {
 		for i, id := range ranking {
@@ -20,4 +21,21 @@ func RRF(rankings [][]string, k float64) []string {
 		return scores[ids[i]] > scores[ids[j]]
 	})
 	return ids
+}
+
+func adaptiveRRFK(rankings [][]string) float64 {
+	maxRankingSize := 0
+	for _, ranking := range rankings {
+		if len(ranking) > maxRankingSize {
+			maxRankingSize = len(ranking)
+		}
+	}
+	k := float64(maxRankingSize * 2)
+	if k < 10 {
+		return 10
+	}
+	if k > 60 {
+		return 60
+	}
+	return k
 }
