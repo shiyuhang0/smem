@@ -24,7 +24,37 @@ It is designed for self-hosting rather than managed SaaS. You keep full control 
 
 ## Quick Start
 
-### 1. Start the Server
+### 1. Install the OpenClaw Plugin
+
+Install via npm:
+
+```bash
+openclaw plugins install @shiyuhang0/smem-openclaw
+```
+
+OpenClaw will automatically write config similar to:
+
+```json
+{
+  "plugins": {
+    "enabled": true,
+    "slots": {
+      "memory": "smem-openclaw"
+    },
+    "entries": {
+      "smem-openclaw": {
+        "enabled": true
+      }
+    }
+  }
+}
+```
+
+Restart OpenClaw after installation or config changes.
+
+> To make the plugin work, you also need to start the memory server in the next step.
+
+### 2. Start the Server
 
 Prerequisites:
 
@@ -66,34 +96,6 @@ Start the server:
 cd server
 go run ./cmd/smem-server
 ```
-
-### 2. Install the OpenClaw Plugin
-
-Install via npm:
-
-```bash
-openclaw plugins install @shiyuhang0/smem-openclaw
-```
-
-OpenClaw will automatically write config similar to:
-
-```json
-{
-  "plugins": {
-    "enabled": true,
-    "slots": {
-      "memory": "smem-openclaw"
-    },
-    "entries": {
-      "smem-openclaw": {
-        "enabled": true
-      }
-    }
-  }
-}
-```
-
-Restart OpenClaw after installation or config changes.
 
 ## Architecture
 
@@ -278,6 +280,15 @@ The plugin supports the following config:
 - `topK`: number of recall results, default `5`
 - `storeMode`: `normal` or `smart`, default `smart`
 - `timeoutMs`: request timeout in milliseconds, default `8000`
+
+## Roadmap
+
+- benchmark
+- multi-tenancy / permissions
+- supports Vercel/Netlify deployment
+- CLI / MCP
+- memory source tracking (conversation)
+- session digest support
 
 ## Further Reading
 

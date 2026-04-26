@@ -24,7 +24,37 @@
 
 ## 快速开始
 
-### 1. 启动服务端
+### 1. OpenClaw 插件启用
+
+通过 npm 安装：
+
+```bash
+openclaw plugins install @shiyuhang0/smem-openclaw
+```
+
+OpenClaw 会自动写入类似如下的配置：
+
+```json
+{
+  "plugins": {
+    "enabled": true,
+    "slots": {
+      "memory": "smem-openclaw"
+    },
+    "entries": {
+      "smem-openclaw": {
+        "enabled": true
+      }
+    }
+  }
+}
+```
+
+插件安装完成或配置变更后，重启 OpenClaw。
+
+> 此时，插件已生效。但需启动 memory server 才能正常工作，见下一步。
+
+### 2. 启动服务端
 
 前置条件：
 
@@ -66,34 +96,6 @@ embedding_model: "text-embedding-3-small"
 cd server
 go run ./cmd/smem-server
 ```
-
-### 2. 安装 OpenClaw 插件
-
-通过 npm 安装：
-
-```bash
-openclaw plugins install @shiyuhang0/smem-openclaw
-```
-
-OpenClaw 会自动写入类似如下的配置：
-
-```json
-{
-  "plugins": {
-    "enabled": true,
-    "slots": {
-      "memory": "smem-openclaw"
-    },
-    "entries": {
-      "smem-openclaw": {
-        "enabled": true
-      }
-    }
-  }
-}
-```
-
-插件安装完成或配置变更后，重启 OpenClaw。
 
 ## 架构
 
@@ -174,6 +176,8 @@ kind:
 - 可选发散机制：通过 softmax 概率式选择，让召回结果更有多样性；`temperature` 用于控制发散程度
 
 这让 `smem` 不仅能更精确地召回“相似”记忆，也更有机会返回在真实使用中“更有用”的记忆。
+
+> 人会遗忘，但这是缺点，AI 为什么要学会遗忘？在 smem 中，记忆不会被遗忘，但近期记忆也更容易被召回。
 
 ### OpenClaw Tool Mode 与 Auto Mode
 
@@ -275,6 +279,16 @@ embedding_dim: 1536
 - `topK`：召回结果数量，默认 `5`
 - `storeMode`：`normal` 或 `smart`，默认 `smart`
 - `timeoutMs`：请求超时时间，单位毫秒，默认 `8000`
+
+## Roadmap
+
+- benchmark
+- 多租户/权限
+- 支持 vercel/netlify 部署
+- CLI/MCP
+- memory 来源记录（对话）
+- 会话 digest 支持
+  
 
 ## 延伸阅读
 
