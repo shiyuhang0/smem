@@ -74,19 +74,26 @@ func (w *JobWorker) Start(ctx context.Context) {
 
 func (w *JobWorker) RunOnce(ctx context.Context) error {
 	ingestLogger.Printf("run ingest worker")
+	claimStartedAt := time.Now()
 	job, err := w.jobs.ClaimNext(ctx, w.workerID, w.now().UTC())
+	claimDuration := time.Since(claimStartedAt)
 	if err != nil {
 		if err == ingestjob.ErrNotFound {
+			ingestLogger.Printf("ingest_timing worker_id=%s stage=claim_next duration=%s result=empty", w.workerID, claimDuration)
 			return nil
 		}
+		ingestLogger.Printf("ingest_timing worker_id=%s stage=claim_next duration=%s result=error err=%v", w.workerID, claimDuration, err)
 		return err
 	}
+	ingestLogger.Printf("ingest_timing worker_id=%s job_id=%s stage=claim_next duration=%s result=claimed", w.workerID, job.ID, claimDuration)
 
 	ingestLogger.Printf("job_claimed job_id=%s attempt=%d mode=%s", job.ID, job.ExecuteCount, job.Mode)
+	jobStartedAt := time.Now()
 
 	if err := w.executeJob(ctx, job); err != nil {
 		return w.handleFailure(ctx, job, err)
 	}
+	ingestLogger.Printf("ingest_timing job_id=%s mode=%s stage=job_total duration=%s", job.ID, job.Mode, time.Since(jobStartedAt))
 	return nil
 }
 
@@ -121,7 +128,9 @@ func (w *JobWorker) executeNormalJob(ctx context.Context, job ingestjob.Job) err
 		UpdatedAt:   now,
 	}
 
+	embedStartedAt := time.Now()
 	embeddingVector, err := w.embed(ctx, item.Content)
+	ingestLogger.Printf("ingest_timing job_id=%s stage=memory_embedding target=create memory_id=%s content_len=%d duration=%s", job.ID, item.ID, len(item.Content), time.Since(embedStartedAt))
 	if err != nil {
 		return err
 	}
@@ -155,7 +164,7 @@ func (w *JobWorker) executeSmartJob(ctx context.Context, job ingestjob.Job) erro
 		return err
 	}
 	ingestLogger.Printf("smart_fusion_actions job_id=%s actions=%v", job.ID, actions)
-	writeSet, err := w.buildWriteSet(ctx, candidates, recalled, actions)
+	writeSet, err := w.buildWriteSet(ctx, job.ID, candidates, recalled, actions)
 	if err != nil {
 		return err
 	}
@@ -166,7 +175,9 @@ func (w *JobWorker) extractCandidates(ctx context.Context, job ingestjob.Job) ([
 	if w.llm == nil {
 		return nil, fmt.Errorf("llm provider is not configured")
 	}
+	startedAt := time.Now()
 	raw, err := w.llm.GenerateText(ctx, llm.NewExtractionPrompt(job.Content))
+	ingestLogger.Printf("ingest_timing job_id=%s mode=%s stage=llm_extract duration=%s", job.ID, job.Mode, time.Since(startedAt))
 	if err != nil {
 		ingestLogger.Printf("extract memory job_id=%s err=%v", job.ID, err)
 		return nil, err
@@ -198,6 +209,11 @@ func (w *JobWorker) recallMemories(ctx context.Context, jobID string, candidates
 	if w.recall == nil {
 		return nil, nil
 	}
+	startedAt := time.Now()
+	defer func() {
+		ingestLogger.Printf("ingest_timing job_id=%s stage=recall duration=%s candidate_count=%d", jobID, time.Since(startedAt), len(candidates))
+	}()
+
 	seen := map[string]struct{}{}
 	out := make([]memory.Memory, 0)
 	for _, candidate := range candidates {
@@ -229,7 +245,9 @@ func (w *JobWorker) fuseCandidates(ctx context.Context, jobID string, candidates
 		promptMemories = append(promptMemories, llm.FusionMemory{ID: item.ID, Content: item.Content})
 	}
 
+	startedAt := time.Now()
 	raw, err := w.llm.GenerateText(ctx, llm.NewFusionDecisionPrompt(promptCandidates, promptMemories))
+	ingestLogger.Printf("ingest_timing job_id=%s stage=llm_fusion duration=%s candidate_count=%d recalled_count=%d", jobID, time.Since(startedAt), len(candidates), len(recalled))
 	if err != nil {
 		return nil, err
 	}
@@ -241,7 +259,7 @@ func (w *JobWorker) fuseCandidates(ctx context.Context, jobID string, candidates
 	return actions, nil
 }
 
-func (w *JobWorker) buildWriteSet(ctx context.Context, candidates []candidateMemory, recalled []memory.Memory, actions []fusionAction) (memoryWriteSet, error) {
+func (w *JobWorker) buildWriteSet(ctx context.Context, jobID string, candidates []candidateMemory, recalled []memory.Memory, actions []fusionAction) (memoryWriteSet, error) {
 	now := w.now().UTC()
 	candidateByID := make(map[string]candidateMemory, len(candidates))
 	for _, candidate := range candidates {
@@ -281,7 +299,9 @@ func (w *JobWorker) buildWriteSet(ctx context.Context, candidates []candidateMem
 				CreatedAt:   now,
 				UpdatedAt:   now,
 			}
+			embedStartedAt := time.Now()
 			vector, err := w.embed(ctx, item.Content)
+			ingestLogger.Printf("ingest_timing job_id=%s stage=memory_embedding target=create memory_id=%s candidate_id=%s content_len=%d duration=%s", jobID, item.ID, candidate.ID, len(item.Content), time.Since(embedStartedAt))
 			if err != nil {
 				return memoryWriteSet{}, err
 			}
@@ -303,7 +323,9 @@ func (w *JobWorker) buildWriteSet(ctx context.Context, candidates []candidateMem
 					updated.Version++
 				}
 				updated.State = memory.StateActive
+				embedStartedAt := time.Now()
 				vector, err := w.embed(ctx, updated.Content)
+				ingestLogger.Printf("ingest_timing job_id=%s stage=memory_embedding target=update memory_id=%s content_len=%d duration=%s", jobID, updated.ID, len(updated.Content), time.Since(embedStartedAt))
 				if err != nil {
 					return memoryWriteSet{}, err
 				}
@@ -333,7 +355,8 @@ func (w *JobWorker) embed(ctx context.Context, content string) ([]float32, error
 }
 
 func (w *JobWorker) commitWriteSet(ctx context.Context, jobID string, writeSet memoryWriteSet) error {
-	return w.tx.Run(ctx, func(memoryRepo memory.Repository, jobRepo ingestjob.Repository) error {
+	startedAt := time.Now()
+	err := w.tx.Run(ctx, func(memoryRepo memory.Repository, jobRepo ingestjob.Repository) error {
 		for _, item := range writeSet.creates {
 			stored, err := memoryRepo.UpsertByContentHash(ctx, item)
 			if err != nil {
@@ -358,6 +381,15 @@ func (w *JobWorker) commitWriteSet(ctx context.Context, jobID string, writeSet m
 		_, err = jobRepo.MarkSucceeded(ctx, currentJob, writeSet.resultMemoryIDs, writeSet.resultSummary, w.now().UTC())
 		return err
 	})
+	ingestLogger.Printf(
+		"ingest_timing job_id=%s stage=commit_write_set duration=%s creates=%d updates=%d deletes=%d",
+		jobID,
+		time.Since(startedAt),
+		len(writeSet.creates),
+		len(writeSet.updates),
+		len(writeSet.deletes),
+	)
+	return err
 }
 
 func replaceResultMemoryID(ids *[]string, oldID, newID string) {

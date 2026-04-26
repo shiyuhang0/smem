@@ -204,10 +204,10 @@ func filterRerankedCandidates(filteredCandidates []memory.RecallCandidate, reran
 			continue
 		}
 		if rerankResult.RelevanceScore < threshold {
-			recallLogger.Printf("rerank score below threshold (%f)%v(%.2f)",
-				threshold,
-				contentSnippet(filteredCandidates[rerankResult.Index].Memory.Content),
-				rerankResult.RelevanceScore)
+			// recallLogger.Printf("rerank score below threshold (%f)%v(%.2f)",
+			// 	threshold,
+			// 	contentSnippet(filteredCandidates[rerankResult.Index].Memory.Content),
+			// 	rerankResult.RelevanceScore)
 			continue
 		}
 		candidate := filteredCandidates[rerankResult.Index]

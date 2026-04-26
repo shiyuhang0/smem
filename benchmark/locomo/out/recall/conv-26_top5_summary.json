@@ -1,0 +1,15 @@
+{
+  "sample_id": "conv-26",
+  "input": "benchmark/locomo/out/samples/conv-26.json",
+  "question_count": 5,
+  "top_k": 5,
+  "temperature": 1.0,
+  "latency_ms": {
+    "mean": 1805.853,
+    "p50": 1537.049,
+    "p95": 2655.269,
+    "p99": 2839.82,
+    "max": 2885.958
+  },
+  "results_output": "benchmark/locomo/out/recall/conv-26_top5_results.json"
+}

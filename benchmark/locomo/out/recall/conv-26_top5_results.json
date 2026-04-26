@@ -1,0 +1,108 @@
+[
+  {
+    "index": 1,
+    "question": "When did Caroline go to the LGBTQ support group?",
+    "answer": "7 May 2023",
+    "category": 2,
+    "evidence": [
+      "D1:3"
+    ],
+    "latency_ms": 2885.958,
+    "retrieved_count": 3,
+    "retrieved": [
+      {
+        "content": "Caroline participates in an LGBTQ support group. On 8 May 2023, she shared that the support group has made her feel accepted and given her courage to embrace herself. She found transgender stories inspiring and was happy and thankful for support received. Books guide, motivate, and help Caroline discover who she is; reading is a huge part of her journey. She loved \"Becoming Nicole\" by Amy Ellis Nutt - a true story about a trans girl and her family that made her feel connected and gave her hope. Caroline transitioned and found the courage to be herself without fear",
+        "score": 0.8655420986415675,
+        "reason": ""
+      },
+      {
+        "content": "Caroline speaks up for the trans community on inclusivity and acceptance, and is involved in spreading awareness and getting others involved in the LGBTQ community; she wants to help make a difference in LGBTQ rights progress; she uses art to advocate for LGBTQ+ acceptance and equality; she attended an LGBTQ conference around July 10, 2023 - it was a welcoming, meaningful environment where she felt accepted and connected with others on similar journeys, with lots of love and support from the community",
+        "score": 0.8367349652571728,
+        "reason": ""
+      },
+      {
+        "content": "Caroline joined 'Connected LGBTQ Activists', an LGBTQ activist group, last Tuesday",
+        "score": 0.7635255646134587,
+        "reason": ""
+      }
+    ]
+  },
+  {
+    "index": 2,
+    "question": "When did Melanie paint a sunrise?",
+    "answer": 2022,
+    "category": 2,
+    "evidence": [
+      "D1:12"
+    ],
+    "latency_ms": 1732.512,
+    "retrieved_count": 1,
+    "retrieved": [
+      {
+        "content": "Melanie painted a lake sunrise last year",
+        "score": 0.383057580612835,
+        "reason": ""
+      }
+    ]
+  },
+  {
+    "index": 3,
+    "question": "What fields would Caroline be likely to pursue in her educaton?",
+    "answer": "Psychology, counseling certification",
+    "category": 3,
+    "evidence": [
+      "D1:9",
+      "D1:11"
+    ],
+    "latency_ms": 1479.13,
+    "retrieved_count": 1,
+    "retrieved": [
+      {
+        "content": "Caroline is pursuing a career in counseling to help trans people with self-acceptance and mental health; she struggled with mental health and received helpful support, which motivated her to pursue a career helping others on their own journeys; she wants to live authentically and help others do the same. She is looking into counseling and mental health jobs because she wants to help others have someone to talk to. She wants to create a safe, inviting place for people to grow through counseling and finds making a difference and raising awareness for mental health rewarding",
+        "score": 0.33720357389418926,
+        "reason": ""
+      }
+    ]
+  },
+  {
+    "index": 4,
+    "question": "What did Caroline research?",
+    "answer": "Adoption agencies",
+    "category": 1,
+    "evidence": [
+      "D2:8"
+    ],
+    "latency_ms": 1394.616,
+    "retrieved_count": 1,
+    "retrieved": [
+      {
+        "content": "Caroline is an artist who creates paintings, drawings, and stained glass windows; she has been creating art since around age 17 and finds it empowering and cathartic. She has been trying abstract art recently and finds it freeing for self-expression. Her work expresses her trans experience and she uses art, including painting and drawing, to explore her gender identity during her transition and changing body; she finds art joyful and uses it to express feelings and capture moments; she finds painting therapeutic and helpful for exploring her identity and being true to herself, which she views as an ongoing adventure of learning and growing; through art, she learned to accept the beauty of imperfections; she has been busy with painting. She created a stained glass window for a local church to remind herself and others that within us all is the key to discovering our true potential, representing her journey as a transgender woman and symbolizing time, growth, and acceptance. The rainbow flag mural and eagle symbol represent courage, freedom, and pride for her as a trans person. She would like to create art similar to a rainbow sidewalk design.",
+        "score": 0.3108133394037885,
+        "reason": ""
+      }
+    ]
+  },
+  {
+    "index": 5,
+    "question": "What is Caroline's identity?",
+    "answer": "Transgender woman",
+    "category": 1,
+    "evidence": [
+      "D1:5"
+    ],
+    "latency_ms": 1537.049,
+    "retrieved_count": 2,
+    "retrieved": [
+      {
+        "content": "Caroline is an artist who creates paintings, drawings, and stained glass windows; she has been creating art since around age 17 and finds it empowering and cathartic. She has been trying abstract art recently and finds it freeing for self-expression. Her work expresses her trans experience and she uses art, including painting and drawing, to explore her gender identity during her transition and changing body; she finds art joyful and uses it to express feelings and capture moments; she finds painting therapeutic and helpful for exploring her identity and being true to herself, which she views as an ongoing adventure of learning and growing; through art, she learned to accept the beauty of imperfections; she has been busy with painting. She created a stained glass window for a local church to remind herself and others that within us all is the key to discovering our true potential, representing her journey as a transgender woman and symbolizing time, growth, and acceptance. The rainbow flag mural and eagle symbol represent courage, freedom, and pride for her as a trans person. She would like to create art similar to a rainbow sidewalk design.",
+        "score": 0.9861927092439752,
+        "reason": ""
+      },
+      {
+        "content": "Caroline is trans and values being a voice for the trans community; she has been transitioning for three years as of June 2023",
+        "score": 0.874134914585202,
+        "reason": ""
+      }
+    ]
+  }
+]

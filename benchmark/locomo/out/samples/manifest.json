@@ -1,0 +1,72 @@
+[
+  {
+    "sample_id": "conv-26",
+    "output": "benchmark/locomo/out/samples/conv-26.json",
+    "sessions": 19,
+    "turns": 419,
+    "qas": 199
+  },
+  {
+    "sample_id": "conv-30",
+    "output": "benchmark/locomo/out/samples/conv-30.json",
+    "sessions": 19,
+    "turns": 369,
+    "qas": 105
+  },
+  {
+    "sample_id": "conv-41",
+    "output": "benchmark/locomo/out/samples/conv-41.json",
+    "sessions": 32,
+    "turns": 663,
+    "qas": 193
+  },
+  {
+    "sample_id": "conv-42",
+    "output": "benchmark/locomo/out/samples/conv-42.json",
+    "sessions": 29,
+    "turns": 629,
+    "qas": 260
+  },
+  {
+    "sample_id": "conv-43",
+    "output": "benchmark/locomo/out/samples/conv-43.json",
+    "sessions": 29,
+    "turns": 680,
+    "qas": 242
+  },
+  {
+    "sample_id": "conv-44",
+    "output": "benchmark/locomo/out/samples/conv-44.json",
+    "sessions": 28,
+    "turns": 675,
+    "qas": 158
+  },
+  {
+    "sample_id": "conv-47",
+    "output": "benchmark/locomo/out/samples/conv-47.json",
+    "sessions": 31,
+    "turns": 689,
+    "qas": 190
+  },
+  {
+    "sample_id": "conv-48",
+    "output": "benchmark/locomo/out/samples/conv-48.json",
+    "sessions": 30,
+    "turns": 681,
+    "qas": 239
+  },
+  {
+    "sample_id": "conv-49",
+    "output": "benchmark/locomo/out/samples/conv-49.json",
+    "sessions": 25,
+    "turns": 509,
+    "qas": 196
+  },
+  {
+    "sample_id": "conv-50",
+    "output": "benchmark/locomo/out/samples/conv-50.json",
+    "sessions": 30,
+    "turns": 568,
+    "qas": 204
+  }
+]
