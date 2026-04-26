@@ -96,8 +96,8 @@ func Load() (Config, error) {
 	if cfg.RerankProvider != "siliconflow" {
 		return Config{}, fmt.Errorf("RERANK_PROVIDER must be siliconflow")
 	}
-	if cfg.EmbeddingProvider != "ollama" && cfg.EmbeddingProvider != "openai" {
-		return Config{}, fmt.Errorf("EMBEDDING_PROVIDER must be ollama or openai")
+	if cfg.EmbeddingProvider != "ollama" && cfg.EmbeddingProvider != "openai" && cfg.EmbeddingProvider != "glm" {
+		return Config{}, fmt.Errorf("EMBEDDING_PROVIDER must be ollama, openai or glm")
 	}
 
 	return cfg, nil
@@ -212,6 +212,18 @@ func normalizeEmbeddingConfig(cfg Config) Config {
 		}
 		if cfg.EmbeddingModel == "" {
 			cfg.EmbeddingModel = "text-embedding-3-small"
+		}
+		if cfg.EmbeddingDim == 0 {
+			cfg.EmbeddingDim = 1536
+		}
+		return cfg
+	}
+	if cfg.EmbeddingProvider == "glm" {
+		if cfg.EmbeddingBaseURL == "" {
+			cfg.EmbeddingBaseURL = "https://open.bigmodel.cn/api/paas/v4"
+		}
+		if cfg.EmbeddingModel == "" {
+			cfg.EmbeddingModel = "embedding-3"
 		}
 		if cfg.EmbeddingDim == 0 {
 			cfg.EmbeddingDim = 1536

@@ -3,6 +3,7 @@ package embedding
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -16,6 +17,13 @@ func TestOpenAIProviderRetriesAndReturnsVector(t *testing.T) {
 	attempts := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts++
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		var payload map[string]any
+		require.NoError(t, json.Unmarshal(body, &payload))
+		require.Equal(t, "text-embedding-3-small", payload["model"])
+		require.Equal(t, "hello", payload["input"])
+		require.Equal(t, float64(1536), payload["dimensions"])
 		if attempts < 3 {
 			w.WriteHeader(http.StatusBadGateway)
 			return
@@ -30,6 +38,7 @@ func TestOpenAIProviderRetriesAndReturnsVector(t *testing.T) {
 		BaseURL:    server.URL,
 		APIKey:     "test",
 		Model:      "text-embedding-3-small",
+		Dimensions: 1536,
 		HTTPClient: server.Client(),
 		Retry:      retry.Policy{MaxAttempts: 3, Backoff: func(int) {}, IsRetryable: retry.DefaultRetryable},
 	})

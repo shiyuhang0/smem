@@ -127,6 +127,17 @@ func TestRecallFiltersLowRerankScores(t *testing.T) {
 	require.Equal(t, "keep", results[0].Memory.ID)
 }
 
+func TestRecallFallsBackToLowerRerankThresholdWhenPrimaryKeepsNothing(t *testing.T) {
+	now := time.Now().UTC()
+	repo := &recallRepo{vectorCandidates: []memory.RecallCandidate{{Memory: memory.Memory{ID: "fallback", Content: "fallback", State: memory.StateActive, StoreCount: 1, CreatedAt: now, UpdatedAt: now}}, {Memory: memory.Memory{ID: "still-drop", Content: "still drop", State: memory.StateActive, StoreCount: 1, CreatedAt: now, UpdatedAt: now}}}}
+	svc := NewService(repo, fakeEmbedder{}, fakeReranker{results: []rerank.Result{{Index: 0, RelevanceScore: 0.3}, {Index: 1, RelevanceScore: 0.19}}})
+
+	results, err := svc.Recall(context.Background(), memory.RecallInput{Content: "query", TopK: 5, Temperature: 1})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.Equal(t, "fallback", results[0].Memory.ID)
+}
+
 func TestMaxRRFCandidateCount(t *testing.T) {
 	require.Equal(t, 0, maxRRFCandidateCount(0))
 	require.Equal(t, 20, maxRRFCandidateCount(5))

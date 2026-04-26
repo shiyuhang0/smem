@@ -142,6 +142,7 @@ OpenAPI: `api/openapi.yaml`
 | Provider | Default Model | Dim |
 |---|---|---|
 | OpenAI | `text-embedding-3-small` | `1536` |
+| GLM | `embedding-3` | `1536` |
 | Ollama | `bge-m3` | `1024` |
 
 ## Development

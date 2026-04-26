@@ -101,12 +101,14 @@ func (a *App) Shutdown(ctx context.Context) error {
 
 func newEmbeddingProvider(cfg config.Config, retryPolicy retry.Policy) (embedding.Provider, error) {
 	providerConfig := embedding.Config{
-		BaseURL: cfg.EmbeddingBaseURL, APIKey: cfg.EmbeddingAPIKey, Model: cfg.EmbeddingModel, Retry: retryPolicy,
+		BaseURL: cfg.EmbeddingBaseURL, APIKey: cfg.EmbeddingAPIKey, Model: cfg.EmbeddingModel, Dimensions: cfg.EmbeddingDim, Retry: retryPolicy,
 	}
 	switch cfg.EmbeddingProvider {
 	case "ollama":
 		return embedding.NewOllamaProvider(providerConfig), nil
 	case "openai":
+		fallthrough
+	case "glm":
 		return embedding.NewOpenAIProvider(providerConfig), nil
 	default:
 		return nil, fmt.Errorf("unsupported embedding provider: %s", cfg.EmbeddingProvider)

@@ -25,8 +25,8 @@ func (i RecallInput) Validate() error {
 	if strings.TrimSpace(i.Content) == "" {
 		return fmt.Errorf("content is required")
 	}
-	if i.TopK < 1 || i.TopK > 10 {
-		return fmt.Errorf("top_k must be between 1 and 10")
+	if i.TopK < 1 || i.TopK > 50 {
+		return fmt.Errorf("top_k must be between 1 and 50")
 	}
 	return nil
 }

@@ -23,7 +23,8 @@ const (
 	enableRRF             = false
 	searchDepthMultiplier = 4
 	// threshold 0.6-0.75 is relabled, but set a lower threshold to allow more candidates here.
-	rerankThreshold = 0.4
+	rerankThreshold         = 0.6
+	rerankFallbackThreshold = 0.2
 )
 
 type Service struct {
@@ -188,14 +189,23 @@ func (s *Service) rerankCandidates(ctx context.Context, query string, candidates
 	}
 	sort.Slice(rerankResults, func(i, j int) bool { return rerankResults[i].RelevanceScore > rerankResults[j].RelevanceScore })
 
+	rerankedCandidates := filterRerankedCandidates(filteredCandidates, rerankResults, rerankThreshold)
+	if len(rerankedCandidates) == 0 && rerankFallbackThreshold < rerankThreshold {
+		recallLogger.Printf("no reranked candidates above threshold %.2f, retrying with fallback threshold %.2f", rerankThreshold, rerankFallbackThreshold)
+		rerankedCandidates = filterRerankedCandidates(filteredCandidates, rerankResults, rerankFallbackThreshold)
+	}
+	return rerankedCandidates, nil
+}
+
+func filterRerankedCandidates(filteredCandidates []memory.RecallCandidate, rerankResults []rerank.Result, threshold float64) []rerankedCandidate {
 	rerankedCandidates := make([]rerankedCandidate, 0, len(filteredCandidates))
 	for _, rerankResult := range rerankResults {
 		if rerankResult.Index < 0 || rerankResult.Index >= len(filteredCandidates) {
 			continue
 		}
-		if rerankResult.RelevanceScore < rerankThreshold {
+		if rerankResult.RelevanceScore < threshold {
 			recallLogger.Printf("rerank score below threshold (%f)%v(%.2f)",
-				rerankThreshold,
+				threshold,
 				contentSnippet(filteredCandidates[rerankResult.Index].Memory.Content),
 				rerankResult.RelevanceScore)
 			continue
@@ -203,7 +213,7 @@ func (s *Service) rerankCandidates(ctx context.Context, query string, candidates
 		candidate := filteredCandidates[rerankResult.Index]
 		rerankedCandidates = append(rerankedCandidates, rerankedCandidate{Candidate: candidate, RerankScore: rerankResult.RelevanceScore})
 	}
-	return rerankedCandidates, nil
+	return rerankedCandidates
 }
 
 func (s *Service) scoreCandidates(candidates []rerankedCandidate) []memory.RecallResult {

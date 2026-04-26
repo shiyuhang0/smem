@@ -138,6 +138,7 @@ func (w *JobWorker) executeNormalJob(ctx context.Context, job ingestjob.Job) err
 func (w *JobWorker) executeSmartJob(ctx context.Context, job ingestjob.Job) error {
 	candidates, err := w.extractCandidates(ctx, job)
 	if err != nil {
+		ingestLogger.Printf("candidate_extraction_failed job_id=%s err=%v", job.ID, err)
 		return err
 	}
 	ingestLogger.Printf("job_extracted job_id=%s candidates=%v", job.ID, candidates)
@@ -167,6 +168,7 @@ func (w *JobWorker) extractCandidates(ctx context.Context, job ingestjob.Job) ([
 	}
 	raw, err := w.llm.GenerateText(ctx, llm.NewExtractionPrompt(job.Content))
 	if err != nil {
+		ingestLogger.Printf("extract memory job_id=%s err=%v", job.ID, err)
 		return nil, err
 	}
 	ingestLogger.Printf("smart_extract_llm_response job_id=%s content=%s resp=%s", job.ID, job.Content, raw)

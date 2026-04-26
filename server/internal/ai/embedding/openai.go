@@ -15,6 +15,7 @@ type Config struct {
 	BaseURL    string
 	APIKey     string
 	Model      string
+	Dimensions int
 	HTTPClient *http.Client
 	Retry      retry.Policy
 }
@@ -23,6 +24,7 @@ type OpenAIProvider struct {
 	baseURL    string
 	apiKey     string
 	model      string
+	dimensions int
 	httpClient *http.Client
 	retry      retry.Policy
 }
@@ -35,7 +37,14 @@ func NewOpenAIProvider(cfg Config) *OpenAIProvider {
 	if cfg.Retry.MaxAttempts == 0 {
 		cfg.Retry = retry.DefaultPolicy()
 	}
-	return &OpenAIProvider{baseURL: strings.TrimRight(cfg.BaseURL, "/"), apiKey: cfg.APIKey, model: cfg.Model, httpClient: client, retry: cfg.Retry}
+	return &OpenAIProvider{
+		baseURL:    strings.TrimRight(cfg.BaseURL, "/"),
+		apiKey:     cfg.APIKey,
+		model:      cfg.Model,
+		dimensions: cfg.Dimensions,
+		httpClient: client,
+		retry:      cfg.Retry,
+	}
 }
 
 func (p *OpenAIProvider) Embed(ctx context.Context, input string) ([]float32, error) {
@@ -53,7 +62,11 @@ func (p *OpenAIProvider) Embed(ctx context.Context, input string) ([]float32, er
 }
 
 func (p *OpenAIProvider) marshalEmbeddingRequest(input string) ([]byte, error) {
-	return json.Marshal(map[string]any{"model": p.model, "input": input})
+	body := map[string]any{"model": p.model, "input": input}
+	if p.dimensions > 0 {
+		body["dimensions"] = p.dimensions
+	}
+	return json.Marshal(body)
 }
 
 func (p *OpenAIProvider) doEmbeddingRequest(ctx context.Context, body []byte) (openAIEmbeddingResponse, error) {

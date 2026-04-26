@@ -24,6 +24,20 @@ func TestLoadDefaults(t *testing.T) {
 	require.Equal(t, 1024, cfg.EmbeddingDim)
 }
 
+func TestLoadGLMEmbeddingDefaults(t *testing.T) {
+	t.Setenv("DB_DSN", "root:pass@tcp(localhost:4000)/smem?parseTime=true")
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	t.Setenv("RERANK_API_KEY", "rerank-key")
+	t.Setenv("EMBEDDING_PROVIDER", "glm")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Equal(t, "glm", cfg.EmbeddingProvider)
+	require.Equal(t, "https://open.bigmodel.cn/api/paas/v4", cfg.EmbeddingBaseURL)
+	require.Equal(t, "embedding-3", cfg.EmbeddingModel)
+	require.Equal(t, 1536, cfg.EmbeddingDim)
+}
+
 func TestLoadRequiresDSNAndAPIKey(t *testing.T) {
 	_, err := Load()
 	require.Error(t, err)
