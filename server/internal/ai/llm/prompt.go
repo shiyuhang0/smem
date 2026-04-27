@@ -62,10 +62,14 @@ Return a JSON object with a "memories" array. Each item may contain only:
 6. Ignore greetings, filler, transient chatter, and other content with no lasting value.
 7. Do not store pure lookup or search intent such as "what is X" or "how do I do Y". If such a request also reveals stable background context, extract only the background context.
 8. Preserve the original language of the input. Do not translate.
-9. Preserve temporal wording as written. Keep expressions like "tomorrow" or "next week" instead of resolving them to calendar dates.
-10. Make each memory self-contained. Avoid unclear pronouns when the referent is obvious from the input.
-11. Remove duplicates within the candidate set. If two candidates overlap, keep the more specific one.
-12. Return at most 5 memories. If nothing is worth storing, return an empty array.
+9. Preserve all time-related information from the input, including timestamps, dates, durations, frequencies, and temporal qualifiers.
+10. Preserve original relative temporal expressions such as "yesterday" or "next month" when they appear.
+11. When the input provides a reliable time anchor, also resolve relative temporal expressions into concrete dates or datetimes, and keep both the original expression and the resolved time in the memory content.
+12. When a relative temporal expression cannot be resolved confidently, keep the original wording rather than guessing.
+13. If an event is time-anchored, include that time anchor in the memory content.
+14. Make each memory self-contained. Avoid unclear pronouns when the referent is obvious from the input.
+15. Remove duplicates within the candidate set. If two candidates overlap, keep the more specific one.
+16. Return at most 5 memories. If nothing is worth storing, return an empty array.
 
 ## Type guidance
 
@@ -114,6 +118,20 @@ Output:
   ]
 }
 
+Input:
+"1:56 pm on 8 May, 2023 Caroline: I went to a LGBTQ support group yesterday and it was so powerful."
+
+Output:
+{
+  "memories": [
+    {
+      "content": "Caroline attended an LGBTQ support group yesterday (7 May, 2023) and found it powerful",
+      "type": "episodic",
+      "kinds": ["note"]
+    }
+  ]
+}
+
 ## Output rules
 
 Return valid JSON only. No markdown. No explanation.
@@ -134,6 +152,7 @@ Requirements:
 - Return at most 5 memories
 - Keep each memory as atomic as possible
 - Preserve the original language
+- Preserve all time-related information
 - Return JSON only
 - If nothing should be stored, return {"memories":[]}
 
@@ -161,11 +180,12 @@ You will receive:
 
 1. If a candidate says the same thing as an existing memory, or is a refinement, normalization, clarification, or extension of it, use "ignore" for the candidate and "update" for that memory. Important: an existing memory must still be "update" even if its final "content" does not change. Reaffirmed or absorbed memories still count as updates.
 2. Use "create" only when the candidate cannot be cleanly absorbed by any existing memory.
-3. Use "delete" only when an existing memory is clearly contradicted or should be replaced rather than updated. Do not delete a memory merely because it is shorter, older, or less specific.
-4. Use "ignore" only when a recalled memory should be fully left alone in this reconciliation. If the candidate reinforces, deepens, clarifies, or otherwise gets absorbed into that memory, use "update" instead. Use "ignore" only for memories that are not the right update target, do not conflict with any candidate, and should receive no content change or reinforcement at all.
-5. Avoid duplicate creates. Preserve the original language. Do not translate or invent facts not grounded in the input.
-6. Return exactly one action for each unique candidate id and each unique recalled memory id. 
-7. Return actions in a stable order: all candidate actions first in candidate input order, then all memory actions in first-seen memory id order.
+3. If a candidate would normally be absorbed by updating an existing memory, but that existing memory is already too long or would become too long after the update, prefer "create" instead of further expanding the old memory.
+4. Use "delete" only when an existing memory is clearly contradicted or should be replaced rather than updated. Do not delete a memory merely because it is shorter, older, or less specific.
+5. Use "ignore" only when a recalled memory should be fully left alone in this reconciliation. If the candidate reinforces, deepens, clarifies, or otherwise gets absorbed into that memory, use "update" instead. Use "ignore" only for memories that are not the right update target, do not conflict with any candidate, and should receive no content change or reinforcement at all.
+6. Avoid duplicate creates. Preserve the original language. Do not translate or invent facts not grounded in the input.
+7. Return exactly one action for each unique candidate id and each unique recalled memory id. 
+8. Return actions in a stable order: all candidate actions first in candidate input order, then all memory actions in first-seen memory id order.
 
 ## Output shape
 
@@ -310,6 +330,22 @@ Result:
     {"target":"memory","id":"m1","action":"update","memory":{"content":"Name is John"}},
     {"target":"candidate","id":"c2","action":"ignore","absorbed_by_memory_ids":["m2"]},
     {"target":"memory","id":"m2","action":"update","memory":{"content":"Likes coffee"}}
+  ]
+}
+
+Example 6 - create a new memory instead of expanding an already long memory:
+
+Candidate memories:
+[{"id":"c1","content":"Started taking piano lessons on Saturdays"}]
+
+Recalled existing memories:
+[{"id":"m1","content":"Profile: lives in Taipei, works remotely as a product designer, likes pour-over coffee, usually exercises before work, prefers aisle seats on flights, keeps a paper journal, enjoys hiking in cooler weather, calls family every Sunday, and is learning Spanish in the evenings"}]
+
+Result:
+{
+  "actions": [
+    {"target":"candidate","id":"c1","action":"create","memory":{"content":"Started taking piano lessons on Saturdays"}},
+    {"target":"memory","id":"m1","action":"ignore"}
   ]
 }`
 
