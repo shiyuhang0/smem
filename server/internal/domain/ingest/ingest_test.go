@@ -3,6 +3,7 @@ package ingest
 import (
 	"context"
 	"errors"
+	"sort"
 	"testing"
 	"time"
 
@@ -43,6 +44,29 @@ func TestParseExtractionPayloadTruncatesAndFiltersKinds(t *testing.T) {
 	require.Len(t, items, 5)
 	require.Equal(t, []string{"preference"}, items[0].Kinds)
 	require.Equal(t, "five", items[4].Content)
+}
+
+func TestParseExtractionPayloadAcceptsMarkdownCodeFence(t *testing.T) {
+	raw := "```json\n{\"memories\":[{\"content\":\"one\",\"type\":\"fact\",\"kinds\":[\"note\"]}]}\n```"
+
+	items, err := parseExtractionPayload(raw)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	require.Equal(t, "one", items[0].Content)
+	require.Equal(t, []string{"note"}, items[0].Kinds)
+}
+
+func TestParseFusionPayloadExtractsJSONFromWrappedText(t *testing.T) {
+	raw := "Here is the result:\n```json\n{\"actions\":[{\"target\":\"candidate\",\"id\":\"c1\",\"action\":\"create\",\"memory\":{\"content\":\"remember this\"}}]}\n```\nHope this helps."
+
+	actions, err := parseFusionPayload(raw,
+		[]candidateMemory{{ID: "c1", Content: "remember this"}},
+		nil,
+	)
+	require.NoError(t, err)
+	require.Len(t, actions, 1)
+	require.Equal(t, "create", actions[0].Action)
+	require.Equal(t, "remember this", actions[0].Memory.Content)
 }
 
 func TestParseFusionPayloadRejectsInvalidProtocol(t *testing.T) {
@@ -139,6 +163,113 @@ func TestJobWorkerRunOnceSmartModeUpdatesExistingMemory(t *testing.T) {
 	require.Equal(t, 2, updated.Version)
 	require.Equal(t, 2, updated.StoreCount)
 	require.Equal(t, []float32{0.3, 0.4}, updated.Embedding)
+}
+
+func TestJobWorkerRunOnceNormalModeBatchesMatchingJobs(t *testing.T) {
+	memories := newMemoryRepo()
+	jobs := newJobRepo()
+	tx := &fakeTxManager{memories: memories, jobs: jobs}
+	job1 := ingestjob.Job{
+		ID:        "job-b1",
+		Content:   "first message",
+		Mode:      ingestjob.ModeNormal,
+		Scope:     memory.ScopeUser,
+		State:     ingestjob.StatePending,
+		Source:    "chat",
+		SessionID: "session-1",
+		CreatedAt: time.Unix(100, 0).UTC(),
+		UpdatedAt: time.Unix(100, 0).UTC(),
+	}
+	job2 := ingestjob.Job{
+		ID:        "job-b2",
+		Content:   "second message",
+		Mode:      ingestjob.ModeNormal,
+		Scope:     memory.ScopeUser,
+		State:     ingestjob.StatePending,
+		Source:    "chat",
+		SessionID: "session-1",
+		CreatedAt: time.Unix(130, 0).UTC(),
+		UpdatedAt: time.Unix(130, 0).UTC(),
+	}
+	mergedContent := mergeBatchContent([]ingestjob.Job{job1, job2})
+	worker := NewJobWorker(jobs, tx, nil, nil, fakeEmbedder{vectors: map[string][]float32{mergedContent: {0.1, 0.2}}}, func() string { return "mem-b1" }, "worker-1")
+	worker.now = func() time.Time { return time.Unix(200, 0).UTC() }
+
+	_, err := jobs.Submit(context.Background(), job1)
+	require.NoError(t, err)
+	_, err = jobs.Submit(context.Background(), job2)
+	require.NoError(t, err)
+
+	err = worker.RunOnce(context.Background())
+	require.NoError(t, err)
+
+	stored, err := memories.GetByID(context.Background(), "mem-b1")
+	require.NoError(t, err)
+	require.Equal(t, mergedContent, stored.Content)
+
+	claimed1, err := jobs.GetByID(context.Background(), "job-b1")
+	require.NoError(t, err)
+	require.Equal(t, ingestjob.StateSucceeded, claimed1.State)
+	claimed2, err := jobs.GetByID(context.Background(), "job-b2")
+	require.NoError(t, err)
+	require.Equal(t, ingestjob.StateSucceeded, claimed2.State)
+	require.Equal(t, claimed1.ResultMemoryIDs, claimed2.ResultMemoryIDs)
+}
+
+func TestJobWorkerRunOnceSmartModeBatchesMatchingJobs(t *testing.T) {
+	memories := newMemoryRepo()
+	jobs := newJobRepo()
+	tx := &fakeTxManager{memories: memories, jobs: jobs}
+	llmProvider := &sequenceLLM{responses: []fakeResponse{
+		{text: `{"memories":[{"content":"batched memory","type":"fact","kinds":["note"]}]}`},
+		{text: `{"actions":[{"target":"candidate","id":"c1","action":"create","memory":{"content":"batched memory"}}]}`},
+	}}
+	worker := NewJobWorker(jobs, tx, fakeRecallService{}, llmProvider, fakeEmbedder{vectors: map[string][]float32{"batched memory": {0.3, 0.4}}}, func() string { return "mem-b2" }, "worker-1")
+	worker.now = func() time.Time { return time.Unix(300, 0).UTC() }
+
+	job1 := ingestjob.Job{
+		ID:        "job-s1",
+		Content:   "first smart",
+		Mode:      ingestjob.ModeSmart,
+		Scope:     memory.ScopeUser,
+		State:     ingestjob.StatePending,
+		Source:    "chat",
+		SessionID: "session-2",
+		CreatedAt: time.Unix(100, 0).UTC(),
+		UpdatedAt: time.Unix(100, 0).UTC(),
+	}
+	job2 := ingestjob.Job{
+		ID:        "job-s2",
+		Content:   "second smart",
+		Mode:      ingestjob.ModeSmart,
+		Scope:     memory.ScopeUser,
+		State:     ingestjob.StatePending,
+		Source:    "chat",
+		SessionID: "session-2",
+		CreatedAt: time.Unix(130, 0).UTC(),
+		UpdatedAt: time.Unix(130, 0).UTC(),
+	}
+
+	_, err := jobs.Submit(context.Background(), job1)
+	require.NoError(t, err)
+	_, err = jobs.Submit(context.Background(), job2)
+	require.NoError(t, err)
+
+	err = worker.RunOnce(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 2, llmProvider.index)
+
+	stored, err := memories.GetByID(context.Background(), "mem-b2")
+	require.NoError(t, err)
+	require.Equal(t, "batched memory", stored.Content)
+
+	claimed1, err := jobs.GetByID(context.Background(), "job-s1")
+	require.NoError(t, err)
+	require.Equal(t, ingestjob.StateSucceeded, claimed1.State)
+	claimed2, err := jobs.GetByID(context.Background(), "job-s2")
+	require.NoError(t, err)
+	require.Equal(t, ingestjob.StateSucceeded, claimed2.State)
+	require.Equal(t, claimed1.ResultMemoryIDs, claimed2.ResultMemoryIDs)
 }
 
 func TestJobWorkerRunOnceRetriesWhenEmbeddingFails(t *testing.T) {
@@ -315,11 +446,51 @@ func (r *jobRepo) GetByID(_ context.Context, id string) (ingestjob.Job, error) {
 }
 
 func (r *jobRepo) ClaimNext(_ context.Context, workerID string, now time.Time) (ingestjob.Job, error) {
+	var selectedID string
+	var selected ingestjob.Job
+	found := false
 	for id, job := range r.items {
 		if job.State != ingestjob.StatePending {
 			continue
 		}
 		if job.NextRunAt != nil && job.NextRunAt.After(now) {
+			continue
+		}
+		if !found || job.CreatedAt.Before(selected.CreatedAt) {
+			selectedID = id
+			selected = job
+			found = true
+		}
+	}
+	if found {
+		selected.State = ingestjob.StateRunning
+		selected.ExecuteCount++
+		selected.WorkerID = workerID
+		selected.LockedAt = ptrTime(now)
+		selected.UpdatedAt = now
+		r.items[selectedID] = selected
+		return selected, nil
+	}
+	return ingestjob.Job{}, ingestjob.ErrNotFound
+}
+
+func (r *jobRepo) ClaimBatchByAnchor(_ context.Context, anchor ingestjob.Job, workerID string, now time.Time, limit int, window time.Duration) ([]ingestjob.Job, error) {
+	batch := []ingestjob.Job{anchor}
+	windowEnd := anchor.CreatedAt.Add(window)
+	for id, job := range r.items {
+		if len(batch) >= limit || id == anchor.ID {
+			continue
+		}
+		if job.State != ingestjob.StatePending || job.Mode != anchor.Mode {
+			continue
+		}
+		if job.Source != anchor.Source || job.SessionID != anchor.SessionID {
+			continue
+		}
+		if job.NextRunAt != nil && job.NextRunAt.After(now) {
+			continue
+		}
+		if job.CreatedAt.Before(anchor.CreatedAt) || !job.CreatedAt.Before(windowEnd) {
 			continue
 		}
 		job.State = ingestjob.StateRunning
@@ -328,9 +499,10 @@ func (r *jobRepo) ClaimNext(_ context.Context, workerID string, now time.Time) (
 		job.LockedAt = ptrTime(now)
 		job.UpdatedAt = now
 		r.items[id] = job
-		return job, nil
+		batch = append(batch, job)
 	}
-	return ingestjob.Job{}, ingestjob.ErrNotFound
+	sort.Slice(batch, func(i, j int) bool { return batch[i].CreatedAt.Before(batch[j].CreatedAt) })
+	return batch, nil
 }
 
 func (r *jobRepo) MarkRetry(_ context.Context, claimed ingestjob.Job, nextRunAt time.Time, lastError string, now time.Time) (ingestjob.Job, error) {

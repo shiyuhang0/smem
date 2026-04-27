@@ -11,7 +11,10 @@ const (
 	maxExtractedMemories  = 5
 	maxRecallPerCandidate = 3
 	maxJobAttempts        = 5
-	defaultPollInterval   = 60 * time.Second
+	defaultPollInterval   = 5 * time.Second
+
+	batchWindow  = time.Minute
+	maxBatchJobs = 10
 )
 
 var allowedKinds = map[string]struct{}{

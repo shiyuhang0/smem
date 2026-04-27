@@ -3,6 +3,7 @@ package ingest
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -18,6 +19,24 @@ type recallService interface {
 
 type transactionManager interface {
 	Run(context.Context, func(memory.Repository, ingestjob.Repository) error) error
+}
+
+type claimedBatch struct {
+	jobs      []ingestjob.Job
+	mergedJob ingestjob.Job
+}
+
+func newClaimedBatch(jobs []ingestjob.Job) claimedBatch {
+	sort.Slice(jobs, func(i, j int) bool {
+		return jobs[i].CreatedAt.Before(jobs[j].CreatedAt)
+	})
+	mergedJob := jobs[0]
+	mergedJob.Content = mergeBatchContent(jobs)
+	return claimedBatch{jobs: jobs, mergedJob: mergedJob}
+}
+
+func (b claimedBatch) size() int {
+	return len(b.jobs)
 }
 
 type JobWorker struct {
@@ -88,13 +107,41 @@ func (w *JobWorker) RunOnce(ctx context.Context) error {
 	ingestLogger.Printf("ingest_timing worker_id=%s job_id=%s stage=claim_next duration=%s result=claimed", w.workerID, job.ID, claimDuration)
 
 	ingestLogger.Printf("job_claimed job_id=%s attempt=%d mode=%s", job.ID, job.ExecuteCount, job.Mode)
+	batch, err := w.jobs.ClaimBatchByAnchor(ctx, job, w.workerID, w.now().UTC(), maxBatchJobs, batchWindow)
+	if err != nil {
+		return w.handleBatchFailure(ctx, []ingestjob.Job{job}, err)
+	}
+	batchSize := len(batch)
+	if batchSize > 1 {
+		ingestLogger.Printf("job_batch_claimed anchor_job_id=%s batch_size=%d mode=%s", job.ID, batchSize, job.Mode)
+	}
 	jobStartedAt := time.Now()
 
-	if err := w.executeJob(ctx, job); err != nil {
-		return w.handleFailure(ctx, job, err)
+	if batchSize == 1 {
+		if err := w.executeJob(ctx, job); err != nil {
+			return w.handleFailure(ctx, job, err)
+		}
+		ingestLogger.Printf("ingest_timing job_id=%s mode=%s stage=job_total duration=%s", job.ID, job.Mode, time.Since(jobStartedAt))
+		return nil
 	}
-	ingestLogger.Printf("ingest_timing job_id=%s mode=%s stage=job_total duration=%s", job.ID, job.Mode, time.Since(jobStartedAt))
+
+	if err := w.executeBatch(ctx, batch); err != nil {
+		return w.handleBatchFailure(ctx, batch, err)
+	}
+	ingestLogger.Printf("ingest_timing job_id=%s mode=%s stage=job_total duration=%s batch_size=%d", job.ID, job.Mode, time.Since(jobStartedAt), batchSize)
 	return nil
+}
+
+func (w *JobWorker) executeBatch(ctx context.Context, jobs []ingestjob.Job) error {
+	batch := newClaimedBatch(jobs)
+	switch batch.mergedJob.Mode {
+	case ingestjob.ModeNormal:
+		return w.executeBatchNormalJob(ctx, batch)
+	case ingestjob.ModeSmart:
+		return w.executeBatchSmartJob(ctx, batch)
+	default:
+		return fmt.Errorf("unsupported ingest mode %q", batch.mergedJob.Mode)
+	}
 }
 
 func (w *JobWorker) executeJob(ctx context.Context, job ingestjob.Job) error {
@@ -145,7 +192,7 @@ func (w *JobWorker) executeNormalJob(ctx context.Context, job ingestjob.Job) err
 }
 
 func (w *JobWorker) executeSmartJob(ctx context.Context, job ingestjob.Job) error {
-	candidates, err := w.extractCandidates(ctx, job)
+	candidates, err := w.extractCandidates(ctx, job, 1)
 	if err != nil {
 		ingestLogger.Printf("candidate_extraction_failed job_id=%s err=%v", job.ID, err)
 		return err
@@ -155,29 +202,95 @@ func (w *JobWorker) executeSmartJob(ctx context.Context, job ingestjob.Job) erro
 		return w.commitWriteSet(ctx, job.ID, memoryWriteSet{resultSummary: "created=0 updated=0 deleted=0"})
 	}
 
-	recalled, err := w.recallMemories(ctx, job.ID, candidates)
+	recalled, err := w.recallMemories(ctx, job.ID, candidates, 1)
 	if err != nil {
 		return err
 	}
-	actions, err := w.fuseCandidates(ctx, job.ID, candidates, recalled)
+	actions, err := w.fuseCandidates(ctx, job.ID, candidates, recalled, 1)
 	if err != nil {
 		return err
 	}
 	ingestLogger.Printf("smart_fusion_actions job_id=%s actions=%v", job.ID, actions)
-	writeSet, err := w.buildWriteSet(ctx, job.ID, candidates, recalled, actions)
+	writeSet, err := w.buildWriteSet(ctx, job.ID, candidates, recalled, actions, 1)
 	if err != nil {
 		return err
 	}
 	return w.commitWriteSet(ctx, job.ID, writeSet)
 }
 
-func (w *JobWorker) extractCandidates(ctx context.Context, job ingestjob.Job) ([]candidateMemory, error) {
+func (w *JobWorker) executeBatchNormalJob(ctx context.Context, batch claimedBatch) error {
+	job := batch.mergedJob
+	now := w.now().UTC()
+	item := memory.Memory{
+		ID:          w.memoryID(),
+		Content:     strings.TrimSpace(job.Content),
+		ContentHash: memory.HashContent(job.Content),
+		Type:        job.Type,
+		Kinds:       append([]string(nil), job.Kinds...),
+		Scope:       job.Scope,
+		State:       memory.StateActive,
+		Metadata:    job.Metadata,
+		AgentID:     job.AgentID,
+		SessionID:   job.SessionID,
+		Source:      job.Source,
+		Version:     1,
+		StoreCount:  1,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+
+	embedStartedAt := time.Now()
+	embeddingVector, err := w.embed(ctx, item.Content)
+	ingestLogger.Printf("ingest_timing job_id=%s stage=memory_embedding target=create memory_id=%s content_len=%d duration=%s batch_size=%d", job.ID, item.ID, len(item.Content), time.Since(embedStartedAt), batch.size())
+	if err != nil {
+		return err
+	}
+	item.Embedding = embeddingVector
+
+	writeSet := memoryWriteSet{
+		creates:         []memory.Memory{item},
+		resultSummary:   "created=1 updated=0 deleted=0",
+		resultMemoryIDs: []string{item.ID},
+	}
+	return w.commitBatchWriteSet(ctx, batch.jobs, writeSet)
+}
+
+func (w *JobWorker) executeBatchSmartJob(ctx context.Context, batch claimedBatch) error {
+	job := batch.mergedJob
+	batchSize := batch.size()
+	candidates, err := w.extractCandidates(ctx, job, batchSize)
+	if err != nil {
+		ingestLogger.Printf("candidate_extraction_failed job_id=%s err=%v", job.ID, err)
+		return err
+	}
+	ingestLogger.Printf("job_extracted job_id=%s candidates=%v", job.ID, candidates)
+	if len(candidates) == 0 {
+		return w.commitBatchWriteSet(ctx, batch.jobs, memoryWriteSet{resultSummary: "created=0 updated=0 deleted=0"})
+	}
+
+	recalled, err := w.recallMemories(ctx, job.ID, candidates, batchSize)
+	if err != nil {
+		return err
+	}
+	actions, err := w.fuseCandidates(ctx, job.ID, candidates, recalled, batchSize)
+	if err != nil {
+		return err
+	}
+	ingestLogger.Printf("smart_fusion_actions job_id=%s actions=%v", job.ID, actions)
+	writeSet, err := w.buildWriteSet(ctx, job.ID, candidates, recalled, actions, batchSize)
+	if err != nil {
+		return err
+	}
+	return w.commitBatchWriteSet(ctx, batch.jobs, writeSet)
+}
+
+func (w *JobWorker) extractCandidates(ctx context.Context, job ingestjob.Job, batchSize int) ([]candidateMemory, error) {
 	if w.llm == nil {
 		return nil, fmt.Errorf("llm provider is not configured")
 	}
 	startedAt := time.Now()
 	raw, err := w.llm.GenerateText(ctx, llm.NewExtractionPrompt(job.Content))
-	ingestLogger.Printf("ingest_timing job_id=%s mode=%s stage=llm_extract duration=%s", job.ID, job.Mode, time.Since(startedAt))
+	ingestLogger.Printf("ingest_timing job_id=%s mode=%s stage=llm_extract duration=%s batch_size=%d", job.ID, job.Mode, time.Since(startedAt), batchSize)
 	if err != nil {
 		ingestLogger.Printf("extract memory job_id=%s err=%v", job.ID, err)
 		return nil, err
@@ -205,13 +318,13 @@ func (w *JobWorker) extractCandidates(ctx context.Context, job ingestjob.Job) ([
 	return candidates, nil
 }
 
-func (w *JobWorker) recallMemories(ctx context.Context, jobID string, candidates []candidateMemory) ([]memory.Memory, error) {
+func (w *JobWorker) recallMemories(ctx context.Context, jobID string, candidates []candidateMemory, batchSize int) ([]memory.Memory, error) {
 	if w.recall == nil {
 		return nil, nil
 	}
 	startedAt := time.Now()
 	defer func() {
-		ingestLogger.Printf("ingest_timing job_id=%s stage=recall duration=%s candidate_count=%d", jobID, time.Since(startedAt), len(candidates))
+		ingestLogger.Printf("ingest_timing job_id=%s stage=recall duration=%s candidate_count=%d batch_size=%d", jobID, time.Since(startedAt), len(candidates), batchSize)
 	}()
 
 	seen := map[string]struct{}{}
@@ -232,7 +345,7 @@ func (w *JobWorker) recallMemories(ctx context.Context, jobID string, candidates
 	return out, nil
 }
 
-func (w *JobWorker) fuseCandidates(ctx context.Context, jobID string, candidates []candidateMemory, recalled []memory.Memory) ([]fusionAction, error) {
+func (w *JobWorker) fuseCandidates(ctx context.Context, jobID string, candidates []candidateMemory, recalled []memory.Memory, batchSize int) ([]fusionAction, error) {
 	if w.llm == nil {
 		return nil, fmt.Errorf("llm provider is not configured")
 	}
@@ -247,7 +360,7 @@ func (w *JobWorker) fuseCandidates(ctx context.Context, jobID string, candidates
 
 	startedAt := time.Now()
 	raw, err := w.llm.GenerateText(ctx, llm.NewFusionDecisionPrompt(promptCandidates, promptMemories))
-	ingestLogger.Printf("ingest_timing job_id=%s stage=llm_fusion duration=%s candidate_count=%d recalled_count=%d", jobID, time.Since(startedAt), len(candidates), len(recalled))
+	ingestLogger.Printf("ingest_timing job_id=%s stage=llm_fusion duration=%s candidate_count=%d recalled_count=%d batch_size=%d", jobID, time.Since(startedAt), len(candidates), len(recalled), batchSize)
 	if err != nil {
 		return nil, err
 	}
@@ -259,7 +372,7 @@ func (w *JobWorker) fuseCandidates(ctx context.Context, jobID string, candidates
 	return actions, nil
 }
 
-func (w *JobWorker) buildWriteSet(ctx context.Context, jobID string, candidates []candidateMemory, recalled []memory.Memory, actions []fusionAction) (memoryWriteSet, error) {
+func (w *JobWorker) buildWriteSet(ctx context.Context, jobID string, candidates []candidateMemory, recalled []memory.Memory, actions []fusionAction, batchSize int) (memoryWriteSet, error) {
 	now := w.now().UTC()
 	candidateByID := make(map[string]candidateMemory, len(candidates))
 	for _, candidate := range candidates {
@@ -301,7 +414,7 @@ func (w *JobWorker) buildWriteSet(ctx context.Context, jobID string, candidates 
 			}
 			embedStartedAt := time.Now()
 			vector, err := w.embed(ctx, item.Content)
-			ingestLogger.Printf("ingest_timing job_id=%s stage=memory_embedding target=create memory_id=%s candidate_id=%s content_len=%d duration=%s", jobID, item.ID, candidate.ID, len(item.Content), time.Since(embedStartedAt))
+			ingestLogger.Printf("ingest_timing job_id=%s stage=memory_embedding target=create memory_id=%s candidate_id=%s content_len=%d duration=%s batch_size=%d", jobID, item.ID, candidate.ID, len(item.Content), time.Since(embedStartedAt), batchSize)
 			if err != nil {
 				return memoryWriteSet{}, err
 			}
@@ -325,7 +438,7 @@ func (w *JobWorker) buildWriteSet(ctx context.Context, jobID string, candidates 
 				updated.State = memory.StateActive
 				embedStartedAt := time.Now()
 				vector, err := w.embed(ctx, updated.Content)
-				ingestLogger.Printf("ingest_timing job_id=%s stage=memory_embedding target=update memory_id=%s content_len=%d duration=%s", jobID, updated.ID, len(updated.Content), time.Since(embedStartedAt))
+				ingestLogger.Printf("ingest_timing job_id=%s stage=memory_embedding target=update memory_id=%s content_len=%d duration=%s batch_size=%d", jobID, updated.ID, len(updated.Content), time.Since(embedStartedAt), batchSize)
 				if err != nil {
 					return memoryWriteSet{}, err
 				}
@@ -392,12 +505,64 @@ func (w *JobWorker) commitWriteSet(ctx context.Context, jobID string, writeSet m
 	return err
 }
 
+func (w *JobWorker) commitBatchWriteSet(ctx context.Context, jobs []ingestjob.Job, writeSet memoryWriteSet) error {
+	jobID := jobs[0].ID
+	startedAt := time.Now()
+	err := w.tx.Run(ctx, func(memoryRepo memory.Repository, jobRepo ingestjob.Repository) error {
+		for _, item := range writeSet.creates {
+			stored, err := memoryRepo.UpsertByContentHash(ctx, item)
+			if err != nil {
+				return err
+			}
+			replaceResultMemoryID(&writeSet.resultMemoryIDs, item.ID, stored.ID)
+		}
+		for _, item := range writeSet.updates {
+			if _, err := memoryRepo.Update(ctx, item); err != nil {
+				return err
+			}
+		}
+		for _, id := range writeSet.deletes {
+			if err := memoryRepo.Delete(ctx, id); err != nil {
+				return err
+			}
+		}
+		for _, job := range jobs {
+			currentJob, err := jobRepo.GetByID(ctx, job.ID)
+			if err != nil {
+				return err
+			}
+			if _, err := jobRepo.MarkSucceeded(ctx, currentJob, writeSet.resultMemoryIDs, writeSet.resultSummary, w.now().UTC()); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	ingestLogger.Printf(
+		"ingest_timing job_id=%s stage=commit_write_set duration=%s creates=%d updates=%d deletes=%d batch_size=%d",
+		jobID,
+		time.Since(startedAt),
+		len(writeSet.creates),
+		len(writeSet.updates),
+		len(writeSet.deletes),
+		len(jobs),
+	)
+	return err
+}
+
 func replaceResultMemoryID(ids *[]string, oldID, newID string) {
 	for i, id := range *ids {
 		if id == oldID {
 			(*ids)[i] = newID
 		}
 	}
+}
+
+func mergeBatchContent(jobs []ingestjob.Job) string {
+	parts := make([]string, 0, len(jobs))
+	for idx, job := range jobs {
+		parts = append(parts, fmt.Sprintf("[message %d | job_id=%s | created_at=%s]\n%s", idx+1, job.ID, job.CreatedAt.UTC().Format(time.RFC3339), strings.TrimSpace(job.Content)))
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 func (w *JobWorker) handleFailure(ctx context.Context, job ingestjob.Job, err error) error {
@@ -416,5 +581,21 @@ func (w *JobWorker) handleFailure(ctx context.Context, job ingestjob.Job, err er
 		return updateErr
 	}
 	ingestLogger.Printf("job_retry_scheduled job_id=%s attempt=%d err=%v", job.ID, job.ExecuteCount, err)
+	return err
+}
+
+func (w *JobWorker) handleBatchFailure(ctx context.Context, jobs []ingestjob.Job, err error) error {
+	if len(jobs) == 1 {
+		return w.handleFailure(ctx, jobs[0], err)
+	}
+	var updateErr error
+	for _, job := range jobs {
+		if failureErr := w.handleFailure(ctx, job, err); failureErr != nil && failureErr != err {
+			updateErr = failureErr
+		}
+	}
+	if updateErr != nil {
+		return updateErr
+	}
 	return err
 }
