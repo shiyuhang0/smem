@@ -24,7 +24,7 @@
 |------|----------|----------|--------------|------|
 | mem0 | LLM 提取 user + assistant 消息 | LLM 决策 `ADD / UPDATE / DELETE / NONE` | 结构化 memory 表 | 记忆分类：semantic, episodic, procedural |
 | mem9 | LLM 提取消息，记忆打 tags | LLM 决策 `ADD / UPDATE / DELETE / NOOP`；`age` 可参与冲突裁决 | 结构化 memory 表，区分 `pinned / insight / digest` 等类型 |  |
-| clawmem | LLM 提取消息/摘要，打 kind/label | LLM 决策 save/stale | 结构化存储 | 展示为 git backend 形式，记忆在 GitHub issue |
+| clawmem | LLM 提取消息/摘要，打 kind/label | LLM 决策 save/stale | 结构化存储 | 展示为 git backend 形式，记忆在 GitHub issue。记忆提取在 client 做，开 subagent|
 | powermem | LLM 抽取；`UserMemory` 还会额外抽用户画像 | LLM 决策 `ADD / UPDATE / DELETE / NONE`，并执行对应动作 | 写入统一落到存储适配层；画像会额外写到 `user_profiles` |  |
 | openclaw memory core | 让 agent 判断哪些内容值得写入当天 memory 文件 | flush 阶段选择性写入，Deep 阶段晋升到 `MEMORY.md` | `memory/YYYY-MM-DD.md` 追加写入；长期知识晋升到 `MEMORY.md` |  |
 | smem（本项目） | 异步 ingest；`smart` 模式 LLM 抽取；支持 `type + kind` 分类 | LLM 执行创建、更新、删除、强化 | 结构化存储 | 异步 job，不阻塞主 agent 路径 |
