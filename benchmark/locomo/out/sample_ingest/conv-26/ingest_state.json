@@ -1,0 +1,12 @@
+{
+  "sample_id": "conv-26",
+  "requested": 419,
+  "start_index": 1,
+  "accepted": 419,
+  "failed": 0,
+  "last_submitted_index": 419,
+  "next_index": 420,
+  "elapsed_seconds": 134.68,
+  "resume_command": "python3 benchmark/locomo/ingest_locomo_sample.py --input benchmark/locomo/out/samples/conv-26.json --start-index 420",
+  "state_output": "benchmark/locomo/out/sample_ingest/conv-26/ingest_state.json"
+}

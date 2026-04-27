@@ -22,7 +22,7 @@ type fusionPayload struct {
 
 func parseExtractionPayload(raw string) ([]extractedMemory, error) {
 	var payload extractionPayload
-	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+	if err := parseJSONPayload(raw, &payload); err != nil {
 		return nil, err
 	}
 
@@ -52,7 +52,7 @@ func parseExtractionPayload(raw string) ([]extractedMemory, error) {
 
 func parseFusionPayload(raw string, candidates []candidateMemory, recalled []memory.Memory) ([]fusionAction, error) {
 	var payload fusionPayload
-	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+	if err := parseJSONPayload(raw, &payload); err != nil {
 		return nil, err
 	}
 
@@ -119,4 +119,91 @@ func filterKinds(input []string) []string {
 		}
 	}
 	return out
+}
+
+func parseJSONPayload(raw string, dest any) error {
+	trimmed := strings.TrimSpace(raw)
+	if err := json.Unmarshal([]byte(trimmed), dest); err == nil {
+		return nil
+	}
+
+	if candidate := stripMarkdownCodeFence(trimmed); candidate != trimmed {
+		if err := json.Unmarshal([]byte(candidate), dest); err == nil {
+			return nil
+		}
+	}
+
+	if candidate, ok := extractJSONObjectOrArray(trimmed); ok {
+		if err := json.Unmarshal([]byte(candidate), dest); err == nil {
+			return nil
+		}
+	}
+
+	return json.Unmarshal([]byte(trimmed), dest)
+}
+
+func stripMarkdownCodeFence(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if !strings.HasPrefix(raw, "```") {
+		return raw
+	}
+
+	lines := strings.Split(raw, "\n")
+	if len(lines) < 2 {
+		return raw
+	}
+	if !strings.HasPrefix(strings.TrimSpace(lines[0]), "```") {
+		return raw
+	}
+	if strings.TrimSpace(lines[len(lines)-1]) != "```" {
+		return raw
+	}
+
+	return strings.TrimSpace(strings.Join(lines[1:len(lines)-1], "\n"))
+}
+
+func extractJSONObjectOrArray(raw string) (string, bool) {
+	start := strings.IndexAny(raw, "{[")
+	if start == -1 {
+		return "", false
+	}
+
+	stack := make([]byte, 0, 8)
+	inString := false
+	escaped := false
+	for i := start; i < len(raw); i++ {
+		ch := raw[i]
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			switch ch {
+			case '\\':
+				escaped = true
+			case '"':
+				inString = false
+			}
+			continue
+		}
+
+		switch ch {
+		case '"':
+			inString = true
+		case '{':
+			stack = append(stack, '}')
+		case '[':
+			stack = append(stack, ']')
+		case '}', ']':
+			if len(stack) == 0 || stack[len(stack)-1] != ch {
+				return "", false
+			}
+			stack = stack[:len(stack)-1]
+			if len(stack) == 0 {
+				return strings.TrimSpace(raw[start : i+1]), true
+			}
+		}
+	}
+
+	return "", false
 }
