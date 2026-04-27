@@ -93,3 +93,20 @@ Outputs:
 
 - `benchmark/locomo/out/qa/conv-26_top5_qa_results.json`
 - `benchmark/locomo/out/qa/conv-26_top5_qa_summary.json`
+
+## Run Recall Benchmark For One Sample
+
+If you only want recall results without calling an LLM:
+
+```bash
+python3 benchmark/locomo/benchmark_recall_sample.py \
+  --input benchmark/locomo/out/samples/conv-26.json \
+  --top-k 5
+```
+
+By default, benchmark scripts wait `5s` between questions to reduce provider-side rate limiting. Override with `--pause-seconds` if needed.
+
+Outputs:
+
+- `benchmark/locomo/out/recall/conv-26_top5_results.json`
+- `benchmark/locomo/out/recall/conv-26_top5_summary.json`

@@ -10,6 +10,28 @@ It is designed for self-hosting rather than managed SaaS. You keep full control 
 
 ![dashboard](./doc/dashboard.png)
 
+## Benchmark
+
+Data
+
+- Sample: locomo `conv-26` 
+- Extracted memories: `260` in `419` turns
+
+> Extracted based on GLM-5.1
+
+Recall (top5)
+
+| Dimension | Result |
+|---|---|
+| Sample | locomo `conv-26` |
+| Questions | `199` |
+| Retrieval p99 latency | `2.59s` |
+| Accuracy | 64.8% |
+
+See [recall details](./benchmark/locomo/out/recall/conv-26_top5_results.json) for more.
+
+> Extracted based on GLM-5.1
+
 ## Core Capabilities
 
 - Secure by design: use your own database, LLM, embedding service, and agent runtime

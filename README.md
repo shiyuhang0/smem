@@ -10,6 +10,26 @@
 
 ![dashboard](./doc/dashboard.png)
 
+## Benchmark
+
+Data
+
+- Sample: locomo `conv-26` (共10组 sample，取了第一组测试)
+- Extracted memories: `260` in `419` turns
+
+> Extracted based on GLM-5.1
+
+Recall (top5)
+
+| Dimension | Result |
+|---|---|
+| Sample | locomo `conv-26` |
+| Questions | `199` |
+| Retrieval p99 latency | `2.59s` |
+| Accuracy | 64.8% |
+
+See [recall details](./benchmark/locomo/out/recall/conv-26_top5_results.json) for more.
+
 ## 核心能力
 
 - 安全：使用你自己的数据库、LLM、embedding 服务和 agent runtime
@@ -289,6 +309,7 @@ embedding_dim: 1536
 - memory 来源记录（对话）
 - 会话 digest 支持
 - 时序优化：记忆创建时间不一定是事件发生时间，增加时间列可以更好地支持时间相关的记忆管理和召回策略。
+- Ingest: 短期会话合并处理，否则拆开容易丢失信息
   
 
 ## 延伸阅读
