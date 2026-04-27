@@ -29,6 +29,7 @@ type JobWorker struct {
 	memoryID     func() string
 	now          func() time.Time
 	pollInterval time.Duration
+	workerCount  int
 	workerID     string
 }
 
@@ -50,26 +51,34 @@ func NewJobWorker(
 		memoryID:     memoryID,
 		now:          time.Now,
 		pollInterval: defaultPollInterval,
+		workerCount:  defaultWorkerCount,
 		workerID:     workerID,
 	}
 }
 
 func (w *JobWorker) Start(ctx context.Context) {
-	go func() {
-		ticker := time.NewTicker(w.pollInterval)
-		defer ticker.Stop()
+	workerCount := w.workerCount
+	if workerCount <= 0 {
+		workerCount = 1
+	}
 
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				if err := w.RunOnce(ctx); err != nil && err != ingestjob.ErrNotFound {
-					ingestLogger.Printf("job_poll_error err=%v", err)
+	for range workerCount {
+		go func() {
+			ticker := time.NewTicker(w.pollInterval)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					if err := w.RunOnce(ctx); err != nil && err != ingestjob.ErrNotFound {
+						ingestLogger.Printf("job_poll_error err=%v", err)
+					}
 				}
 			}
-		}
-	}()
+		}()
+	}
 }
 
 func (w *JobWorker) RunOnce(ctx context.Context) error {

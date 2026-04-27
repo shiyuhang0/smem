@@ -12,6 +12,7 @@ const (
 	maxRecallPerCandidate = 3
 	maxJobAttempts        = 5
 	defaultPollInterval   = 5 * time.Second
+	defaultWorkerCount    = 2
 )
 
 var allowedKinds = map[string]struct{}{

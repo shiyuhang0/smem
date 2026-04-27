@@ -3,6 +3,7 @@ package ingest
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -177,6 +178,57 @@ func TestJobWorkerRunOnceRetriesWhenEmbeddingFails(t *testing.T) {
 	require.Equal(t, "boom", job.LastError)
 }
 
+func TestJobWorkerStartLimitsConcurrentRunOnce(t *testing.T) {
+	memories := newMemoryRepo()
+	jobs := newJobRepo()
+	tx := &fakeTxManager{memories: memories, jobs: jobs}
+	embedder := &blockingEmbedder{
+		started: make(chan string, 3),
+		release: make(chan struct{}),
+		vectors: map[string][]float32{
+			"remember one":   {0.1},
+			"remember two":   {0.2},
+			"remember three": {0.3},
+		},
+	}
+	worker := NewJobWorker(jobs, tx, nil, nil, embedder, func() string { return "mem-1" }, "worker-1")
+	worker.pollInterval = time.Millisecond
+	worker.workerCount = 2
+	worker.now = func() time.Time { return time.Unix(600, 0).UTC() }
+
+	for _, job := range []ingestjob.Job{
+		{ID: "job-1", Content: "remember one", Mode: ingestjob.ModeNormal, Scope: memory.ScopeUser, State: ingestjob.StatePending, CreatedAt: time.Unix(100, 0).UTC(), UpdatedAt: time.Unix(100, 0).UTC()},
+		{ID: "job-2", Content: "remember two", Mode: ingestjob.ModeNormal, Scope: memory.ScopeUser, State: ingestjob.StatePending, CreatedAt: time.Unix(100, 0).UTC(), UpdatedAt: time.Unix(100, 0).UTC()},
+		{ID: "job-3", Content: "remember three", Mode: ingestjob.ModeNormal, Scope: memory.ScopeUser, State: ingestjob.StatePending, CreatedAt: time.Unix(100, 0).UTC(), UpdatedAt: time.Unix(100, 0).UTC()},
+	} {
+		_, err := jobs.Submit(context.Background(), job)
+		require.NoError(t, err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	worker.Start(ctx)
+
+	for range 2 {
+		select {
+		case <-embedder.started:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for two concurrent jobs to start")
+		}
+	}
+
+	running, pending, succeeded := jobs.countStates()
+	require.Equal(t, 2, running)
+	require.Equal(t, 1, pending)
+	require.Equal(t, 0, succeeded)
+
+	close(embedder.release)
+	require.Eventually(t, func() bool {
+		_, _, succeeded = jobs.countStates()
+		return succeeded == 3
+	}, time.Second, 10*time.Millisecond)
+}
+
 type fakeResponse struct {
 	text string
 	err  error
@@ -208,6 +260,18 @@ func (f fakeEmbedder) Embed(_ context.Context, content string) ([]float32, error
 	return f.vectors[content], nil
 }
 
+type blockingEmbedder struct {
+	started chan string
+	release chan struct{}
+	vectors map[string][]float32
+}
+
+func (b *blockingEmbedder) Embed(_ context.Context, content string) ([]float32, error) {
+	b.started <- content
+	<-b.release
+	return b.vectors[content], nil
+}
+
 type fakeRecallService struct {
 	results map[string][]memory.RecallResult
 }
@@ -226,17 +290,22 @@ func (f *fakeTxManager) Run(ctx context.Context, fn func(memory.Repository, inge
 }
 
 type memoryRepo struct {
+	mu    sync.Mutex
 	items map[string]memory.Memory
 }
 
 func newMemoryRepo() *memoryRepo { return &memoryRepo{items: map[string]memory.Memory{}} }
 
 func (r *memoryRepo) Create(_ context.Context, m memory.Memory) (memory.Memory, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.items[m.ID] = m
 	return m, nil
 }
 
 func (r *memoryRepo) UpsertByContentHash(_ context.Context, m memory.Memory) (memory.Memory, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	for id, item := range r.items {
 		if item.ContentHash != m.ContentHash {
 			continue
@@ -255,17 +324,23 @@ func (r *memoryRepo) UpsertByContentHash(_ context.Context, m memory.Memory) (me
 }
 
 func (r *memoryRepo) Update(_ context.Context, m memory.Memory) (memory.Memory, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	m.Kind = memory.PrimaryKind(m.Kinds)
 	r.items[m.ID] = m
 	return m, nil
 }
 
 func (r *memoryRepo) Delete(_ context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	delete(r.items, id)
 	return nil
 }
 
 func (r *memoryRepo) GetByID(_ context.Context, id string) (memory.Memory, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	item, ok := r.items[id]
 	if !ok {
 		return memory.Memory{}, memory.ErrNotFound
@@ -274,6 +349,8 @@ func (r *memoryRepo) GetByID(_ context.Context, id string) (memory.Memory, error
 }
 
 func (r *memoryRepo) List(_ context.Context, _ memory.ListInput) ([]memory.Memory, int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	out := make([]memory.Memory, 0, len(r.items))
 	for _, item := range r.items {
 		out = append(out, item)
@@ -296,17 +373,22 @@ func (r *memoryRepo) FullTextSearch(_ context.Context, _ string, _ int) ([]memor
 }
 
 type jobRepo struct {
+	mu    sync.Mutex
 	items map[string]ingestjob.Job
 }
 
 func newJobRepo() *jobRepo { return &jobRepo{items: map[string]ingestjob.Job{}} }
 
 func (r *jobRepo) Submit(_ context.Context, job ingestjob.Job) (ingestjob.Job, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.items[job.ID] = job
 	return job, nil
 }
 
 func (r *jobRepo) GetByID(_ context.Context, id string) (ingestjob.Job, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	job, ok := r.items[id]
 	if !ok {
 		return ingestjob.Job{}, ingestjob.ErrNotFound
@@ -315,6 +397,8 @@ func (r *jobRepo) GetByID(_ context.Context, id string) (ingestjob.Job, error) {
 }
 
 func (r *jobRepo) ClaimNext(_ context.Context, workerID string, now time.Time) (ingestjob.Job, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	for id, job := range r.items {
 		if job.State != ingestjob.StatePending {
 			continue
@@ -334,6 +418,8 @@ func (r *jobRepo) ClaimNext(_ context.Context, workerID string, now time.Time) (
 }
 
 func (r *jobRepo) MarkRetry(_ context.Context, claimed ingestjob.Job, nextRunAt time.Time, lastError string, now time.Time) (ingestjob.Job, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	job := r.items[claimed.ID]
 	if job.State != ingestjob.StateRunning || job.ExecuteCount != claimed.ExecuteCount || job.WorkerID != claimed.WorkerID {
 		return ingestjob.Job{}, ingestjob.ErrConflict
@@ -349,6 +435,8 @@ func (r *jobRepo) MarkRetry(_ context.Context, claimed ingestjob.Job, nextRunAt 
 }
 
 func (r *jobRepo) MarkFailed(_ context.Context, claimed ingestjob.Job, lastError string, now time.Time) (ingestjob.Job, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	job := r.items[claimed.ID]
 	if job.State != ingestjob.StateRunning || job.ExecuteCount != claimed.ExecuteCount || job.WorkerID != claimed.WorkerID {
 		return ingestjob.Job{}, ingestjob.ErrConflict
@@ -363,6 +451,8 @@ func (r *jobRepo) MarkFailed(_ context.Context, claimed ingestjob.Job, lastError
 }
 
 func (r *jobRepo) MarkSucceeded(_ context.Context, claimed ingestjob.Job, resultMemoryIDs []string, resultSummary string, now time.Time) (ingestjob.Job, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	job := r.items[claimed.ID]
 	if job.State != ingestjob.StateRunning || job.ExecuteCount != claimed.ExecuteCount || job.WorkerID != claimed.WorkerID {
 		return ingestjob.Job{}, ingestjob.ErrConflict
@@ -377,6 +467,22 @@ func (r *jobRepo) MarkSucceeded(_ context.Context, claimed ingestjob.Job, result
 	job.UpdatedAt = now
 	r.items[claimed.ID] = job
 	return job, nil
+}
+
+func (r *jobRepo) countStates() (running int, pending int, succeeded int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, job := range r.items {
+		switch job.State {
+		case ingestjob.StateRunning:
+			running++
+		case ingestjob.StatePending:
+			pending++
+		case ingestjob.StateSucceeded:
+			succeeded++
+		}
+	}
+	return running, pending, succeeded
 }
 
 func ptrTime(value time.Time) *time.Time { return &value }
